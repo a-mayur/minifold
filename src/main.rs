@@ -53,8 +53,6 @@ async fn main() {
 async fn run() -> Result<(), String> {
     let config = Config::from_env()?;
     engines::check_tools()?;
-    std::fs::create_dir_all(&config.config_dir)
-        .map_err(|e| format!("cannot create {}: {e}", config.config_dir.display()))?;
     let settings = settings::load_or_create(&config.settings_path())?;
     let storage = Storage::prepare(&config.data_dir, settings.max_upload_bytes())?;
     let policy = Policy {

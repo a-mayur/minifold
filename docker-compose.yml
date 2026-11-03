@@ -8,9 +8,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Required. Put both in a .env file next to this one.
-      MINIFOLD_AUTH_TOKEN: ${MINIFOLD_AUTH_TOKEN:?Set MINIFOLD_AUTH_TOKEN in .env}
-      MINIFOLD_ADMIN_TOKEN: ${MINIFOLD_ADMIN_TOKEN:?Set MINIFOLD_ADMIN_TOKEN in .env}
+      # Optional: set them in a .env file next to this one, or leave them out and Minifold
+      # generates both on first start (printed once in `docker logs`, saved in ./config/tokens.toml).
+      MINIFOLD_AUTH_TOKEN: ${MINIFOLD_AUTH_TOKEN:-}
+      MINIFOLD_ADMIN_TOKEN: ${MINIFOLD_ADMIN_TOKEN:-}
     volumes:
       - ./config:/config   # settings.toml (admin settings)
       - ./data:/data       # files while they are processed

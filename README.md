@@ -47,8 +47,10 @@ Then add the container from the template below. It uses `ghcr.io/a-mayur/minifol
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `MINIFOLD_AUTH_TOKEN` | yes | – | Shared access token for users, 16+ visible ASCII characters, no `;` or `,` |
-| `MINIFOLD_ADMIN_TOKEN` | yes | – | Admin token, same rules, must differ from the user token |
+| `MINIFOLD_AUTH_TOKEN` | no | generated | Shared access token for users, 16+ visible ASCII characters, no `;` or `,` |
+| `MINIFOLD_ADMIN_TOKEN` | no | generated | Admin token, same rules, must differ from the user token |
+
+If a token isn't set, Minifold generates a random one on first start, prints it **once** in the container log (`docker logs minifold`) and saves it in `/config/tokens.toml` (readable only by the container user). Later starts reuse it. A token set in the environment always wins; delete `tokens.toml` and restart to generate new ones.
 | `MINIFOLD_DATA_DIR` | no | `/data` | Where uploads and outputs are stored while jobs run |
 | `MINIFOLD_CONFIG_DIR` | no | `/config` | Where `settings.toml` lives |
 | `MINIFOLD_BIND` | no | `0.0.0.0:8080` | Listen address |

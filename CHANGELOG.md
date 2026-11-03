@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.1
+
+### Fixed
+
+- The container no longer fails to start when the access and admin tokens are left empty, which is what Unraid does with blank template fields ("MINIFOLD_AUTH_TOKEN is not set"). Minifold now generates any missing token on first start, prints it once in the container log, and saves it in `/config/tokens.toml` (readable only by the container user). Later starts reuse it, and a token you set yourself always takes priority.
+
+### Changed
+
+- Unraid template and `docker-compose.yml`: the token fields are optional and explain where generated tokens can be found.
+
 ## v0.1.0 — first release
 
 Minifold is a lightweight, self-hosted file compressor. Drag and drop files into the web page, pick a level, and download smaller files. Everything is processed on your own server: no telemetry, no external requests, nothing leaves the machine.

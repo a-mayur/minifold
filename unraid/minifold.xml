@@ -9,7 +9,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/a-mayur/minifold/issues</Support>
   <Project>https://github.com/a-mayur/minifold</Project>
-  <Overview>Minifold - a lightweight self-hosted file compressor. Drag and drop images, PDFs, videos or any other file, pick a level, and download smaller files. Everything is processed on this server; nothing is sent anywhere else. Admin page at /admin.</Overview>
+  <Overview>Minifold - a lightweight self-hosted file compressor. Drag and drop images, PDFs, videos or any other file, pick a level, and download smaller files. Everything is processed on this server; nothing is sent anywhere else. Admin page at /admin. Optional GPU video encoding: Intel/AMD - add --device=/dev/dri --group-add=GID to Extra Parameters (GID from: stat -c %g /dev/dri/renderD128); NVIDIA - add --runtime=nvidia and the variables NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,video,utility.</Overview>
   <Category>Tools: MediaApp:Photos MediaApp:Video</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <Icon>https://raw.githubusercontent.com/a-mayur/minifold/main/unraid/icon.png</Icon>
@@ -21,5 +21,4 @@
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/minifold/data" Mode="rw" Description="Files while they're being compressed. Deleted automatically by the retention settings. Needs free space of at least 2.5x the max file size." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/minifold/data</Config>
   <Config Name="Access token" Target="MINIFOLD_AUTH_TOKEN" Default="" Mode="" Description="Password for everyone using Minifold (at least 16 characters). Leave empty and Minifold generates one on first start: it's shown once in the container log and saved in /mnt/user/appdata/minifold/config/tokens.toml." Type="Variable" Display="always" Required="false" Mask="true"></Config>
   <Config Name="Admin token" Target="MINIFOLD_ADMIN_TOKEN" Default="" Mode="" Description="Password for the admin page (/admin), different from the access token. Leave empty to have one generated, like the access token." Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="GPU (Intel/AMD, optional)" Target="/dev/dri" Default="" Mode="" Description="For hardware video encoding, set this to /dev/dri and add --group-add=GID to Extra Parameters (GID from: stat -c %g /dev/dri/renderD128). For NVIDIA, add --runtime=nvidia and the variables NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,video,utility." Type="Device" Display="advanced" Required="false" Mask="false"></Config>
 </Container>

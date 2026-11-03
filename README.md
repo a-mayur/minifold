@@ -41,7 +41,7 @@ Then add the container from the template below. It uses `ghcr.io/a-mayur/minifol
 
 ### Unraid template
 
-`unraid/minifold.xml` sets everything up: port, the two appdata folders, both tokens (masked), `--restart=unless-stopped --user=99:100` and an optional GPU device. Copy it to `/boot/config/plugins/dockerMan/templates-user/` on the server, then in the Docker tab choose **Add Container** and pick **Minifold** from the template list.
+`unraid/minifold.xml` sets everything up: port, the two appdata folders, both tokens (masked, optional) and `--restart=unless-stopped --user=99:100`. For GPU video encoding, add `--device=/dev/dri --group-add=<GID>` to Extra Parameters (see Hardware video encoding). Copy it to `/boot/config/plugins/dockerMan/templates-user/` on the server, then in the Docker tab choose **Add Container** and pick **Minifold** from the template list.
 
 ## Configuration
 
@@ -115,7 +115,7 @@ The server refuses to start, with a clear message, if a token is missing or inva
 At startup Minifold looks for an NVIDIA GPU (`/dev/nvidia0`) and Intel/AMD GPUs (`/dev/dri/renderD*`), and runs a one-second test encode with each candidate (NVENC, Quick Sync, VA-API). Only accelerators that pass appear on the admin page; the default is **Off**. Hardware encoders are much faster but usually make larger files than the CPU at the same level, and they're used for H.264/HEVC only (WebM always uses the CPU).
 
 - If the selected accelerator isn't found at the next start, the admin page shows a warning and video jobs fail with `HW_UNAVAILABLE` until another option is chosen. A failed hardware encode fails the job (`HW_ENCODE_FAILED`); it never silently switches to the CPU.
-- **Intel/AMD on Unraid:** add `--device=/dev/dri` and `--group-add=<GID of /dev/dri/renderD128>` (find it with `stat -c %g /dev/dri/renderD128`) to Extra Parameters. Some older Intel GPUs need Debian's non-free `intel-media-va-driver-non-free` to encode; without it the accelerator simply isn't offered.
+- **Intel/AMD on Unraid:** add `--device=/dev/dri --group-add=<GID of /dev/dri/renderD128>` (find it with `stat -c %g /dev/dri/renderD128`) to Extra Parameters. Some older Intel GPUs need Debian's non-free `intel-media-va-driver-non-free` to encode; without it the accelerator simply isn't offered.
 - **NVIDIA on Unraid:** install the Nvidia Driver plugin, then add `--runtime=nvidia` and the variables `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`.
 - Not supported yet (clear error): animated AVIF, HEIC/AVIF files with several images, ICO, JPEG XL, camera RAW, PSD.
 - Images are decoded in memory, so they are limited to 512 MB and 150 megapixels (`IMAGE_TOO_LARGE`).

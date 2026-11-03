@@ -6,6 +6,8 @@
 
 - The container no longer fails to start when the access and admin tokens are left empty, which is what Unraid does with blank template fields ("MINIFOLD_AUTH_TOKEN is not set"). Minifold now generates any missing token on first start, prints it once in the container log, and saves it in `/config/tokens.toml` (readable only by the container user). Later starts reuse it, and a token you set yourself always takes priority.
 
+- Unraid: the container failed to start with "docker: bad format for path:" because the optional GPU field in the template is passed to Docker even when empty. The field is removed; for GPU encoding add `--device=/dev/dri --group-add=<GID>` to Extra Parameters (described in the template).
+
 ### Changed
 
 - Unraid template and `docker-compose.yml`: the token fields are optional and explain where generated tokens can be found.

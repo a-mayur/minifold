@@ -1,0 +1,25 @@
+services:
+  minifold:
+    build: .
+    image: minifold:local   # or use the published image: ghcr.io/a-mayur/minifold:latest (and remove `build`)
+    container_name: minifold
+    # Required for the admin page's "Restart now" button: Minifold exits and Docker starts it again.
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Required. Put both in a .env file next to this one.
+      MINIFOLD_AUTH_TOKEN: ${MINIFOLD_AUTH_TOKEN:?Set MINIFOLD_AUTH_TOKEN in .env}
+      MINIFOLD_ADMIN_TOKEN: ${MINIFOLD_ADMIN_TOKEN:?Set MINIFOLD_ADMIN_TOKEN in .env}
+    volumes:
+      - ./config:/config   # settings.toml (admin settings)
+      - ./data:/data       # files while they are processed
+    # Optional hardware video encoding. Intel/AMD (VA-API, Quick Sync):
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "104"            # GID that owns /dev/dri/renderD128 on the host: stat -c %g /dev/dri/renderD128
+    # NVIDIA (needs the NVIDIA Container Toolkit): uncomment `runtime`, and add these two
+    # lines to `environment:` above: NVIDIA_VISIBLE_DEVICES: all
+    #                                NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    # runtime: nvidia

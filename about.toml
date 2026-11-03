@@ -1,0 +1,31 @@
+# cargo-about: generates THIRD_PARTY_LICENSES.md (full license texts of linked crates)
+# during the Docker build, so the shipped binary always carries the notices it needs.
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "IJG",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
+
+# These crates bundle C libraries under their own licenses; include those texts too.
+[libwebp-sys.clarify]
+license = "MIT AND BSD-3-Clause"
+[[libwebp-sys.clarify.files]]
+path = "vendor/COPYING"
+license = "BSD-3-Clause"
+checksum = "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+
+[libdeflate-sys.clarify]
+license = "Apache-2.0 AND MIT"
+[[libdeflate-sys.clarify.files]]
+path = "libdeflate/COPYING"
+license = "MIT"
+checksum = "4ad69099cb4374836fd27583d9991e2838cd86b6e4666ab26b2d32582c91e73a"

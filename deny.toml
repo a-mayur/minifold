@@ -1,0 +1,27 @@
+# cargo-deny: every crate linked into the Minifold binary must have a permissive license,
+# so the binary can stay MIT. GPL/AGPL tools (FFmpeg, Ghostscript, pngquant, gifsicle) are
+# never linked; they run as separate programs from the Docker image.
+
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "IJG",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

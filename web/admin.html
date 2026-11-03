@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minifold admin</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/admin.js" defer></script>
+</head>
+<body>
+<div class="page narrow">
+  <header class="top">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>
+      <span class="brand-name">Minifold</span>
+      <span class="pill dark">Admin</span>
+    </div>
+    <nav class="nav">
+      <a href="/">Back to app</a>
+      <button type="button" id="logout" class="link-button" hidden>Sign out</button>
+    </nav>
+  </header>
+
+  <main id="login-view" class="stack" hidden>
+    <form id="login-form" class="card login">
+      <h1>Admin sign in</h1>
+      <p class="muted">Enter the admin token (MINIFOLD_ADMIN_TOKEN).</p>
+      <label for="token">Admin token</label>
+      <input id="token" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="error-text" role="alert" hidden></p>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </main>
+
+  <main id="admin-view" class="stack" hidden>
+    <div id="notice" class="notice ok" role="status" hidden></div>
+    <div id="error" class="alert" role="alert" hidden></div>
+
+    <div id="hw-warning" class="alert" role="alert" hidden></div>
+
+    <div id="restart-bar" class="notice warn" role="status" hidden>
+      <div>
+        <b>Settings saved. Restart required to apply them.</b>
+        <span id="restart-detail"></span>
+      </div>
+      <button type="button" id="restart" class="warn-button">Restart now</button>
+    </div>
+
+    <form id="settings-form" class="stack" novalidate>
+      <section class="card">
+        <h2>Uploads</h2>
+        <div class="setting">
+          <label for="max_upload_gb"><b>Maximum file size</b><span id="disk-hint" class="muted small"></span></label>
+          <div class="unit-input"><input id="max_upload_gb" type="number" min="1" max="1024" step="1" required><span class="muted">GB</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Retention &amp; auto-delete</h2>
+        <div class="setting">
+          <label for="delete_originals_after_job"><b>Delete originals right after compression</b><span class="muted small">The uploaded file is removed as soon as its job finishes or fails.</span></label>
+          <input id="delete_originals_after_job" type="checkbox" role="switch" class="switch">
+        </div>
+        <div class="setting indent" id="original-retention-row">
+          <label for="original_retention_minutes"><b>Keep originals for</b><span class="muted small">Counted from upload. Never longer than the compressed file is kept.</span></label>
+          <div class="unit-input"><input id="original_retention_minutes" type="number" min="1" max="10080" step="1" required><span class="muted">minutes</span></div>
+        </div>
+        <div class="setting">
+          <label for="output_retention_minutes"><b>Keep compressed files for</b><span class="muted small">Counted from when compression finished. Cleanup runs every minute and on startup.</span></label>
+          <div class="unit-input"><input id="output_retention_minutes" type="number" min="1" max="10080" step="1" required><span class="muted">minutes</span></div>
+        </div>
+        <div class="setting">
+          <label for="delete_after_download"><b>Delete compressed file after first download</b><span class="muted small">When off, files stay until the retention time above runs out.</span></label>
+          <input id="delete_after_download" type="checkbox" role="switch" class="switch">
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Privacy</h2>
+        <div class="setting">
+          <label for="strip_metadata"><b>Strip metadata from images</b><span class="muted small">Removes GPS location, camera details, dates and comments from images (JPEG, PNG, WebP, GIF, HEIC, AVIF, TIFF), and the author, creator and XMP metadata from PDFs. The color profile and rotation are kept so images look the same.</span></label>
+          <input id="strip_metadata" type="checkbox" role="switch" class="switch">
+        </div>
+      </section>
+
+      <section class="card" id="hw-section" hidden>
+        <h2>Hardware acceleration</h2>
+        <p class="muted small">Used for H.264/HEVC video. Faster, but files are usually larger than CPU encoding at the same level. Only accelerators that passed a test encode when Minifold started are listed.</p>
+        <fieldset class="choices" id="hw-choices"></fieldset>
+      </section>
+
+      <section class="card">
+        <h2>Performance</h2>
+        <div class="setting">
+          <label for="workers"><b>Files compressed at the same time</b><span id="cpu-hint" class="muted small"></span></label>
+          <div class="unit-input"><input id="workers" type="number" min="1" max="64" step="1" required></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>System</h2>
+        <dl class="system" id="system"></dl>
+      </section>
+
+      <div class="actions-plain">
+        <button type="submit" id="save" class="primary" disabled>Save settings</button>
+      </div>
+    </form>
+  </main>
+</div>
+</body>
+</html>

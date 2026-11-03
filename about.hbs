@@ -1,0 +1,22 @@
+# Third-party licenses
+
+Minifold is MIT-licensed. Its binary links the Rust crates below (including the C libraries
+they bundle: mozjpeg, libwebp, libdeflate, zstd). Each license text is listed once, with the
+crates it applies to.
+
+The Docker image also contains programs that Minifold runs as separate processes and does
+not link: FFmpeg, Ghostscript, qpdf, libvips, libheif and its plugins, pngquant, gifsicle and
+the VA-API drivers. They come from Debian; each one's license is in
+`/usr/share/doc/<package>/copyright` inside the image, and their source code is available
+from Debian (`apt-get source <package>`, or https://sources.debian.org).
+
+{{#each licenses}}
+## {{{name}}}
+
+Used by: {{#each used_by}}{{crate.name}} {{crate.version}}{{#unless @last}}, {{/unless}}{{/each}}
+
+```
+{{{text}}}
+```
+
+{{/each}}

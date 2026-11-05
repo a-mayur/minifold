@@ -7,6 +7,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock about.toml about.hbs ./
 COPY src ./src
 COPY web ./web
+COPY unraid/icon.png ./unraid/icon.png
 RUN cargo build --release --locked \
     && cargo about generate --locked about.hbs -o THIRD_PARTY_LICENSES.md
 

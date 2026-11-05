@@ -1,0 +1,39 @@
+# Checks pull requests. Builds nothing and publishes nothing; releases stay in ci.yml (tags only).
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the programs the engines run
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nasm pngquant gifsicle libvips-tools qpdf ghostscript ffmpeg \
+            libheif-plugin-x265 libheif-plugin-libde265 libheif-plugin-aomenc libheif-plugin-dav1d
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.97"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  licenses:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources advisories

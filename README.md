@@ -184,7 +184,9 @@ Errors are JSON: `{"code": "FILE_TOO_LARGE", "message": "This file is 2.8 GB and
 
 ## CI
 
-`.github/workflows/ci.yml` runs **only when a version tag (`v*`) is pushed**; ordinary pushes and pull requests don't start it. A tag run does everything in order:
+`.github/workflows/pr.yml` runs clippy, the unit tests and `cargo deny` on every pull request to `main`; it builds and publishes nothing.
+
+`.github/workflows/ci.yml` runs **only when a version tag (`v*`) is pushed**; ordinary pushes don't start it. A tag run does everything in order:
 
 1. clippy (warnings are errors) and the unit tests, with all the programs the engines use installed;
 2. `cargo deny`: every crate linked into the binary must have a license from the allow-list in `deny.toml` (permissive only), come from crates.io, and have no known security advisory;
@@ -203,6 +205,10 @@ cargo test   # needs nasm (for mozjpeg), pngquant, gifsicle, libvips-tools, the 
 MINIFOLD_AUTH_TOKEN=dev-user-token-12345 MINIFOLD_ADMIN_TOKEN=dev-admin-token-12345 \
   MINIFOLD_DATA_DIR=./data MINIFOLD_CONFIG_DIR=./config MINIFOLD_BIND=127.0.0.1:8080 cargo run
 ```
+
+## Contributing
+
+Issues and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately, see [SECURITY.md](SECURITY.md).
 
 ## License
 

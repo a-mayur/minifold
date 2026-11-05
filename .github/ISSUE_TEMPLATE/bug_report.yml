@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work as described
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Minifold version
+      description: Shown on the admin page under System, or the image tag you run.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where do you run it?
+      options: [Unraid, Docker / Docker Compose, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: CPU architecture
+      options: [amd64, arm64]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Include the file type, size and compression level if a file failed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Upload a 40 MB HEIC photo
+        2. Choose High
+        3. Press Compress
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Container log
+      description: "`docker logs minifold`. Remove your access and admin tokens before posting."
+      render: shell

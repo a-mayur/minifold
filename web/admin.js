@@ -5,7 +5,10 @@ const NUMBER_FIELDS = ['max_upload_gb', 'workers', 'original_retention_minutes',
 const BOOL_FIELDS = ['delete_originals_after_job', 'delete_after_download', 'strip_metadata'];
 const RESTART_TIMEOUT_MS = 60000;
 const HW_LABELS = { off: 'Off (CPU only)', nvenc: 'NVIDIA NVENC', qsv: 'Intel Quick Sync', vaapi: 'VA-API (Intel/AMD)' };
+const THEME_FIELDS = ['theme_mode', 'theme_light', 'theme_dark'];
+const PALETTES = [['peach', 'Peach'], ['sage', 'Sage'], ['dusty', 'Dusty blue'], ['lavender', 'Lavender'], ['blush', 'Blush'], ['butter', 'Butter']];
 let saved = null;
+let theme = null; // theme fields being edited
 
 function human(bytes) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -78,6 +81,8 @@ function render(view) {
   saved = view.saved;
   for (const f of NUMBER_FIELDS) $(f).value = String(view.saved[f]);
   for (const f of BOOL_FIELDS) $(f).checked = view.saved[f];
+  theme = Object.fromEntries(THEME_FIELDS.map((f) => [f, view.saved[f]]));
+  renderTheme();
   renderHw(view);
   syncDependent();
 
@@ -104,6 +109,39 @@ function render(view) {
     (jobs > 0 ? `${jobs} job${jobs === 1 ? ' is' : 's are'} in progress and will be cancelled. ` : 'No jobs are running. ') +
     'Minifold stops cleanly and Docker starts it again (the container needs the restart policy "unless-stopped").';
   $('save').disabled = true;
+}
+
+/** Mode buttons and one swatch per palette, each painted with that palette's own colors. */
+function renderTheme() {
+  for (const b of document.querySelectorAll('#theme-modes button')) {
+    b.setAttribute('aria-checked', String(b.dataset.value === theme.theme_mode));
+  }
+  for (const mode of ['light', 'dark']) {
+    const key = `theme_${mode}`;
+    $(`swatches-${mode}`).replaceChildren(...PALETTES.map(([id, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'swatch';
+      button.setAttribute('role', 'radio');
+      button.setAttribute('aria-checked', String(theme[key] === id));
+      const ring = document.createElement('span');
+      ring.className = 'swatch-ring';
+      const dot = document.createElement('span');
+      dot.className = `swatch-dot m3-${id}-${mode}`;
+      const core = document.createElement('span');
+      core.className = 'swatch-core';
+      core.appendChild(icon('check', 16));
+      dot.appendChild(core);
+      ring.appendChild(dot);
+      button.append(ring, label);
+      button.addEventListener('click', () => {
+        theme[key] = id;
+        renderTheme();
+        onEdit();
+      });
+      return button;
+    }));
+  }
 }
 
 /** Only detected accelerators are offered; a selected-but-missing one gets a warning instead. */
@@ -138,7 +176,7 @@ function current() {
   for (const f of BOOL_FIELDS) out[f] = $(f).checked;
   const hw = document.querySelector('input[name=hw_accel]:checked');
   out.hw_accel = hw ? hw.value : saved.hw_accel;
-  return out;
+  return Object.assign(out, theme);
 }
 
 function syncDependent() {
@@ -188,13 +226,19 @@ async function save(e) {
     return;
   }
   $('save').disabled = true;
+  const themeChanged = THEME_FIELDS.some((f) => theme[f] !== saved[f]);
   try {
     const res = await request('/api/admin/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(current()),
     });
-    render(await res.json());
+    const view = await res.json();
+    render(view);
+    if (themeChanged) {
+      window.minifoldTheme.reload();
+      if (!view.restart_required) showNotice('Theme saved. It applies right away for everyone.');
+    }
     $('restart-bar').scrollIntoView({ block: 'nearest' });
   } catch (err) {
     $('save').disabled = false;
@@ -260,6 +304,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('settings-form').addEventListener('input', onEdit);
+  for (const b of document.querySelectorAll('#theme-modes button')) {
+    b.addEventListener('click', () => {
+      theme.theme_mode = b.dataset.value;
+      renderTheme();
+      onEdit();
+    });
+  }
   $('settings-form').addEventListener('submit', save);
   $('restart').addEventListener('click', restart);
 

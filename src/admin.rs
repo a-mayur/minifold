@@ -80,7 +80,7 @@ pub async fn restart(State(app): State<AppState>) -> (StatusCode, Json<serde_jso
 fn view(app: &AppState) -> Result<AdminView, AppError> {
     let saved = app.saved_settings.lock().expect("settings lock poisoned").clone();
     Ok(AdminView {
-        restart_required: saved != app.settings,
+        restart_required: saved.needs_restart(&app.settings),
         saved,
         active: app.settings.clone(),
         jobs_in_progress: app.jobs.in_progress(),

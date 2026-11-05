@@ -8,6 +8,7 @@ mod jobs;
 mod level;
 mod settings;
 mod storage;
+mod theme;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

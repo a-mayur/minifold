@@ -53,24 +53,12 @@ function el(tag, className, text) {
   return node;
 }
 
-function closeIcon() {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('width', '18');
-  svg.setAttribute('height', '18');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '2');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const d of ['M6 6l12 12', 'M18 6L6 18']) {
-    const path = document.createElementNS(ns, 'path');
-    path.setAttribute('d', d);
-    svg.appendChild(path);
-  }
-  return svg;
-}
+const LEVEL_DESC = {
+  low: 'Fastest, visually lossless.',
+  medium: 'Balanced size and quality.',
+  high: 'Much smaller files with slight quality loss.',
+  extra: 'Smallest files; videos are capped at 720p.',
+};
 
 // ---- views ----
 
@@ -132,10 +120,10 @@ function reject(name, code, message) {
   const detail = el('span', '', `${message} `);
   detail.appendChild(el('span', 'code', code));
   text.appendChild(detail);
-  const dismiss = el('button', 'remove');
+  const dismiss = el('button', 'icon-btn small');
   dismiss.type = 'button';
   dismiss.setAttribute('aria-label', 'Dismiss');
-  dismiss.appendChild(closeIcon());
+  dismiss.appendChild(icon('close', 20));
   dismiss.addEventListener('click', () => box.remove());
   box.append(text, dismiss);
   $('rejects').appendChild(box);
@@ -320,7 +308,8 @@ function fileRow(item) {
       detail.append(el('span', 'muted', human(job.original_size)), el('span', 'muted', '→'), el('b', '', human(job.output_size)), el('span', 'saved', `−${pct}%`));
       li.appendChild(detail);
     }
-    const link = el('a', 'download', 'Download');
+    const link = el('a', 'btn tonal download');
+    link.append(icon('download', 18), 'Download');
     link.href = `/api/jobs/${job.id}/download`;
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -328,10 +317,10 @@ function fileRow(item) {
     });
     li.appendChild(link);
   } else if (item.status === 'ready' && !state.busy) {
-    const remove = el('button', 'remove');
+    const remove = el('button', 'icon-btn small');
     remove.type = 'button';
     remove.setAttribute('aria-label', `Remove ${item.file.name}`);
-    remove.appendChild(closeIcon());
+    remove.appendChild(icon('close', 20));
     remove.addEventListener('click', () => {
       state.files = state.files.filter((f) => f !== item);
       render();
@@ -364,7 +353,8 @@ function render() {
   $('empty').hidden = state.files.length > 0;
   $('totals').textContent = totals();
   $('compress').disabled = state.busy || ready === 0;
-  $('compress').textContent = ready > 0 ? `Compress ${ready} file${ready === 1 ? '' : 's'}` : 'Compress';
+  $('compress-label').textContent = ready > 0 ? `Compress ${ready} file${ready === 1 ? '' : 's'}` : 'Compress';
+  $('level-desc').textContent = LEVEL_DESC[state.level];
   $('clear').hidden = state.busy || state.files.length === 0;
   for (const button of document.querySelectorAll('.level')) {
     button.setAttribute('aria-pressed', String(button.dataset.level === state.level));

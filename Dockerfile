@@ -30,6 +30,7 @@ RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin mini
     && mkdir /data /config && chown minifold /data /config
 COPY --from=build /src/target/release/minifold /usr/local/bin/minifold
 COPY LICENSE /usr/share/doc/minifold/LICENSE
+COPY web/fonts/LICENSE-Roboto-OFL.txt web/LICENSE-Material-Symbols.txt /usr/share/doc/minifold/
 COPY --from=build /src/THIRD_PARTY_LICENSES.md /usr/share/doc/minifold/THIRD_PARTY_LICENSES.md
 USER minifold
 ENV MINIFOLD_DATA_DIR=/data \

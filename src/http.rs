@@ -28,6 +28,11 @@ const ADMIN_HTML: &str = include_str!("../web/admin.html");
 const APP_JS: &str = include_str!("../web/app.js");
 const ADMIN_JS: &str = include_str!("../web/admin.js");
 const APP_CSS: &str = include_str!("../web/app.css");
+const THEME_JS: &str = include_str!("../web/theme.js");
+const ICONS_JS: &str = include_str!("../web/icons.js");
+const ROBOTO_400: &[u8] = include_bytes!("../web/fonts/roboto-400.woff2");
+const ROBOTO_500: &[u8] = include_bytes!("../web/fonts/roboto-500.woff2");
+const ICON_PNG: &[u8] = include_bytes!("../unraid/icon.png");
 
 pub fn router(app: AppState) -> Router {
     let user_api = Router::new()
@@ -50,6 +55,13 @@ pub fn router(app: AppState) -> Router {
         .route("/app.js", get(|| async { static_file(APP_JS, JS) }))
         .route("/admin.js", get(|| async { static_file(ADMIN_JS, JS) }))
         .route("/app.css", get(|| async { static_file(APP_CSS, "text/css; charset=utf-8") }))
+        .route("/theme.js", get(|| async { static_file(THEME_JS, JS) }))
+        .route("/icons.js", get(|| async { static_file(ICONS_JS, JS) }))
+        .route("/palettes.css", get(|| async { static_file(crate::theme::palettes_css(), "text/css; charset=utf-8") }))
+        .route("/theme.css", get(theme_css))
+        .route("/fonts/roboto-400.woff2", get(|| async { static_bytes(ROBOTO_400, "font/woff2") }))
+        .route("/fonts/roboto-500.woff2", get(|| async { static_bytes(ROBOTO_500, "font/woff2") }))
+        .route("/icon.png", get(|| async { static_bytes(ICON_PNG, "image/png") }))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/login", post(user_login))
         .route("/api/logout", post(|| async { logout(auth::USER_COOKIE) }))
@@ -60,6 +72,16 @@ pub fn router(app: AppState) -> Router {
         .fallback(|| async { AppError::new(ErrorCode::NotFound, "Not found.") })
         .layer(middleware::from_fn(security_headers))
         .with_state(app)
+}
+
+/// Public, so the sign-in page is themed too. Read from the saved settings: theme changes apply at once.
+async fn theme_css(State(app): State<AppState>) -> Response {
+    let css = crate::theme::theme_css(&app.saved_settings.lock().expect("settings lock poisoned"));
+    ([(header::CONTENT_TYPE, "text/css; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], css).into_response()
+}
+
+fn static_bytes(body: &'static [u8], content_type: &'static str) -> Response {
+    ([(header::CONTENT_TYPE, content_type), (header::CACHE_CONTROL, "max-age=86400")], body).into_response()
 }
 
 fn static_file(body: &'static str, content_type: &'static str) -> Response {

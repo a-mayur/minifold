@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.0
+
+### Added
+
+- **Material 3 interface.** The app and admin pages are redesigned with Material 3: top app bar, segmented buttons for the compression level, cards, a floating Compress button, M3 switches and text fields. Fonts (Roboto) and icons (Material Symbols) are bundled, so nothing is loaded from outside the server.
+- **Light and dark mode.** A button in the top bar switches between them; each visitor's choice is remembered in their browser. The first visit follows the admin's default mode (System by default, which follows the device).
+- **Theme section on the admin page.** Pick the default mode and a pastel palette for light and dark mode separately: Peach (default), Sage, Dusty blue, Lavender, Blush or Butter. Changes apply immediately for everyone, without a restart.
+- New app icon: the Accordion, in pastel orange (Unraid template and the app's logo and favicon).
+- Screenshots in the README.
+
+### Changed
+
+- CI runs only when a version tag is pushed, not on every push or pull request. The `:edge` image is no longer published.
+- Existing `settings.toml` files get the new `theme_mode`, `theme_light` and `theme_dark` keys added automatically.
+
 ## v0.1.1
 
 ### Fixed

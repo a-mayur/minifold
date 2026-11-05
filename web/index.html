@@ -4,55 +4,56 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Minifold</title>
+<link rel="icon" href="/icon.png">
+<link id="theme-css" rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/app.css">
+<script src="/theme.js"></script>
+<script src="/icons.js" defer></script>
 <script src="/app.js" defer></script>
 </head>
 <body>
-<div class="page">
-  <header class="top">
-    <div class="brand">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg>
-      <span class="brand-name">Minifold</span>
-      <span class="pill">self-hosted</span>
-    </div>
-    <nav class="nav">
-      <a href="/admin">Admin</a>
-      <button type="button" id="logout" class="link-button" hidden>Sign out</button>
-    </nav>
-  </header>
+<header class="appbar">
+  <svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#F6B183"/><path d="M128 176L192 208V336L128 304Z" fill="#FFFFFF"/><path d="M192 208L256 176V304L192 336Z" fill="#C8693A"/><path d="M256 176L320 208V336L256 304Z" fill="#FFFFFF"/><path d="M320 208L384 176V304L320 336Z" fill="#C8693A"/></svg>
+  <span class="appbar-title">Minifold</span>
+  <span class="chip-outline">self-hosted</span>
+  <button type="button" id="mode-toggle" class="icon-btn"></button>
+  <a href="/admin" class="icon-btn" aria-label="Admin settings" title="Admin settings"><span data-icon="admin_panel_settings"></span></a>
+  <button type="button" id="logout" class="icon-btn" aria-label="Sign out" title="Sign out" hidden><span data-icon="logout"></span></button>
+</header>
 
+<div class="page">
   <main id="login-view" class="stack" hidden>
     <form id="login-form" class="card login">
       <h1>Sign in</h1>
       <p class="muted">Enter the access token set by the person who runs this server.</p>
-      <label for="token">Access token</label>
-      <input id="token" type="password" autocomplete="current-password" required>
+      <label class="field"><input id="token" type="password" autocomplete="current-password" required><span>Access token</span></label>
       <p id="login-error" class="error-text" role="alert" hidden></p>
-      <button type="submit" class="primary">Sign in</button>
+      <button type="submit" class="btn filled">Sign in</button>
     </form>
   </main>
 
   <main id="app-view" class="stack" hidden>
     <section id="drop" class="drop" aria-labelledby="drop-title">
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+      <span class="drop-icon"><span data-icon="upload_file" data-size="36"></span></span>
       <h1 id="drop-title">Drop files here to compress</h1>
-      <p class="muted" id="drop-hint"></p>
-      <label class="secondary file-button">Browse files<input id="picker" type="file" multiple></label>
+      <p id="drop-hint"></p>
+      <label class="btn tonal file-button"><span data-icon="folder_open" data-size="18"></span>Browse files<input id="picker" type="file" multiple></label>
     </section>
 
     <div id="rejects" class="stack-tight"></div>
 
-    <section class="card">
+    <section class="card filled">
       <div class="row-between">
         <h2>Compression level</h2>
         <span class="muted small">Applies to all files in this batch</span>
       </div>
-      <div class="levels" role="group" aria-label="Compression level">
-        <button type="button" class="level" data-level="low"><b>Low</b><span>Fastest</span></button>
-        <button type="button" class="level" data-level="medium"><b>Medium</b><span>Balanced</span></button>
-        <button type="button" class="level" data-level="high"><b>High</b><span>Smaller, slower</span></button>
-        <button type="button" class="level" data-level="extra"><b>Extra</b><span>Smallest, slowest</span></button>
+      <div class="segmented" role="group" aria-label="Compression level">
+        <button type="button" class="level" data-level="low"><span class="seg-check" data-icon="check" data-size="18"></span>Low</button>
+        <button type="button" class="level" data-level="medium"><span class="seg-check" data-icon="check" data-size="18"></span>Medium</button>
+        <button type="button" class="level" data-level="high"><span class="seg-check" data-icon="check" data-size="18"></span>High</button>
+        <button type="button" class="level" data-level="extra"><span class="seg-check" data-icon="check" data-size="18"></span>Extra</button>
       </div>
+      <p class="muted small" id="level-desc"></p>
     </section>
 
     <section class="card flush" aria-labelledby="files-title">
@@ -62,13 +63,13 @@
       </div>
       <ul id="files" class="files"></ul>
       <p id="empty" class="muted pad center">No files yet.</p>
-      <div class="actions pad">
-        <button type="button" id="clear" class="secondary" hidden>Start over</button>
-        <button type="button" id="compress" class="primary" disabled>Compress</button>
+      <div class="actions">
+        <button type="button" id="clear" class="btn text" hidden>Start over</button>
+        <button type="button" id="compress" class="fab" disabled><span data-icon="compress"></span><span id="compress-label">Compress</span></button>
       </div>
     </section>
 
-    <p class="muted small center" id="policy"></p>
+    <p class="policy"><span data-icon="lock" data-size="16"></span><span id="policy"></span></p>
   </main>
 </div>
 </body>

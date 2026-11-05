@@ -25,6 +25,19 @@ pub struct Settings {
     pub strip_metadata: bool,
     /// Hardware video encoder; only accelerators detected at startup can be chosen.
     pub hw_accel: HwAccel,
+    /// What visitors see first; each visitor can switch with the button in the top bar.
+    pub theme_mode: ThemeMode,
+    /// Palette ids from web/palettes.json. Theme settings apply without a restart.
+    pub theme_light: String,
+    pub theme_dark: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    System,
+    Light,
+    Dark,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +77,9 @@ impl Settings {
             delete_after_download: false,
             strip_metadata: true,
             hw_accel: HwAccel::Off,
+            theme_mode: ThemeMode::System,
+            theme_light: "peach".into(),
+            theme_dark: "peach".into(),
         }
     }
 
@@ -71,7 +87,26 @@ impl Settings {
         in_range("max_upload_gb", "Maximum file size", self.max_upload_gb, 1, 1024, "GB")?;
         in_range("workers", "Files compressed at the same time", self.workers as u64, 1, 64, "")?;
         in_range("original_retention_minutes", "Keep originals for", self.original_retention_minutes, 1, 10_080, "minutes")?;
-        in_range("output_retention_minutes", "Keep compressed files for", self.output_retention_minutes, 1, 10_080, "minutes")
+        in_range("output_retention_minutes", "Keep compressed files for", self.output_retention_minutes, 1, 10_080, "minutes")?;
+        for (field, id) in [("theme_light", &self.theme_light), ("theme_dark", &self.theme_dark)] {
+            if !crate::theme::exists(id) {
+                let message = format!("Unknown color palette {id:?}. Choose one of: {}.", crate::theme::ids().join(", "));
+                return Err(InvalidSetting { field, message });
+            }
+        }
+        Ok(())
+    }
+
+    /// True when `self` (saved) differs from `active` in anything a restart must apply.
+    /// Theme settings take effect immediately, so they don't count.
+    pub fn needs_restart(&self, active: &Settings) -> bool {
+        let theme_as_active = Settings {
+            theme_mode: active.theme_mode,
+            theme_light: active.theme_light.clone(),
+            theme_dark: active.theme_dark.clone(),
+            ..self.clone()
+        };
+        theme_as_active != *active
     }
 
     pub fn max_upload_bytes(&self) -> u64 {
@@ -173,6 +208,23 @@ mod tests {
         let s = load_or_create(&path).unwrap();
         assert_eq!((s.max_upload_gb, s.workers, s.output_retention_minutes, s.strip_metadata), (5, 3, 30, true));
         assert!(std::fs::read_to_string(&path).unwrap().contains("strip_metadata = true"), "file updated");
+    }
+
+    #[test]
+    fn theme_changes_need_no_restart_but_others_do() {
+        let active = Settings::defaults();
+        let theme = Settings { theme_mode: ThemeMode::Dark, theme_light: "sage".into(), ..Settings::defaults() };
+        assert!(!theme.needs_restart(&active));
+        let workers = Settings { workers: 5, ..theme };
+        assert!(workers.needs_restart(&active));
+    }
+
+    #[test]
+    fn rejects_unknown_palettes() {
+        let bad = Settings { theme_dark: "neon".into(), ..Settings::defaults() };
+        let err = bad.validate().unwrap_err();
+        assert_eq!(err.field, "theme_dark");
+        assert!(err.message.contains("peach"), "lists the valid palettes");
     }
 
     #[test]

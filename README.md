@@ -5,13 +5,20 @@ A lightweight self-hosted file compressor. Drag and drop files, pick a level, do
 - **Private:** everything runs on your server. No telemetry, no external requests (enforced in the browser by a strict Content-Security-Policy).
 - **Light:** one small Rust binary with the UI built in.
 - **Tidy:** originals are deleted as soon as their job finishes or fails, compressed files after a retention time you choose, and leftovers are wiped on every start.
+- **Yours to style:** a Material 3 interface with light and dark mode and six pastel color palettes, chosen on the admin page.
 
-> **Status: all six milestones done.** Images (JPEG, PNG, WebP, GIF, HEIC, AVIF, TIFF; BMP becomes PNG), PDFs and videos (MP4, MOV, MKV, WebM) are compressed in their own format, with metadata (GPS, camera details, PDF author) removed by default.
+| Light mode | Dark mode |
+|---|---|
+| ![Minifold in light mode: drop zone, compression levels and finished files](docs/screenshots/app-light.png) | ![Minifold in dark mode](docs/screenshots/app-dark.png) |
+
+![The admin page's Theme section: default mode and a pastel palette for light and dark mode](docs/screenshots/admin-light.png)
+
+> **Status:** Images (JPEG, PNG, WebP, GIF, HEIC, AVIF, TIFF; BMP becomes PNG), PDFs and videos (MP4, MOV, MKV, WebM) are compressed in their own format, with metadata (GPS, camera details, PDF author) removed by default.
 > Other files are compressed with zstd and downloaded as `.zst`.
 
 ## Run with Docker
 
-Images for amd64 and arm64 are published to GitHub Container Registry by CI: `ghcr.io/a-mayur/minifold:latest` (releases), `:1.2.3` / `:1.2` (versions) and `:edge` (main branch). To build it yourself instead:
+Images for amd64 and arm64 are published to GitHub Container Registry by CI for every release: `ghcr.io/a-mayur/minifold:latest`, or a version such as `:0.2.0` / `:0.2`. To build it yourself instead:
 
 ```bash
 echo "MINIFOLD_AUTH_TOKEN=$(openssl rand -hex 24)" > .env
@@ -69,6 +76,11 @@ Edit them on the admin page or in `/config/settings.toml`, then restart. The fil
 | `delete_after_download` | `false` | | Delete a compressed file once it has been fully downloaded (an aborted download keeps it) |
 | `strip_metadata` | `true` | | Remove EXIF/GPS, XMP, comments and text chunks from images, author/XMP from PDFs, and location/dates/titles from videos. Image color profile and orientation, and track languages, are always kept |
 | `hw_accel` | `"off"` | `off`, `nvenc`, `qsv`, `vaapi` | Hardware video encoder; only accelerators detected at startup can be chosen |
+| `theme_mode` | `"system"` | `system`, `light`, `dark` | What visitors see first (`system` follows their device). Each visitor can switch with the button in the top bar; their choice is remembered in their browser |
+| `theme_light` | `"peach"` | `peach`, `sage`, `dusty`, `lavender`, `blush`, `butter` | Color palette in light mode |
+| `theme_dark` | `"peach"` | same | Color palette in dark mode |
+
+Theme settings apply immediately, for everyone, without a restart. The palettes are Material 3 color schemes generated from pastel seed colors with Google's material-color-utilities (`tools/gen-palettes.mjs` → `web/palettes.json`), so text contrast stays readable in every combination.
 
 Retention cleanup runs every minute, so a file lives at most its retention time plus one minute. It also deletes stray files that belong to no job (for example, a stalled upload).
 
@@ -172,15 +184,15 @@ Errors are JSON: `{"code": "FILE_TOO_LARGE", "message": "This file is 2.8 GB and
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request:
+`.github/workflows/ci.yml` runs **only when a version tag (`v*`) is pushed**; ordinary pushes and pull requests don't start it. A tag run does everything in order:
 
 1. clippy (warnings are errors) and the unit tests, with all the programs the engines use installed;
 2. `cargo deny`: every crate linked into the binary must have a license from the allow-list in `deny.toml` (permissive only), come from crates.io, and have no known security advisory;
 3. builds the image natively on amd64 and arm64 runners and runs `ci/offline-e2e.sh` against each: the container starts on a Docker network with **no route outside** (checked), and one file of every kind (text, JPEG, PNG, WebP, HEIC, AVIF, TIFF, GIF, PDF, MP4) must compress successfully;
-4. on `main` and on `v*` tags, pushes both images and publishes one multi-arch tag;
-5. on `v*` tags, creates a GitHub Release with the matching `CHANGELOG.md` section as its notes (the release fails if that section is missing), and attaches `minifold-<version>-amd64.tar.gz` (the image, for `docker load`), the Unraid template, the icon and `SHA256SUMS`.
+4. pushes both images and publishes one multi-arch image as `:X.Y.Z`, `:X.Y` and `:latest`;
+5. creates a GitHub Release with the matching `CHANGELOG.md` section as its notes (the release fails if that section is missing), and attaches `minifold-<version>-amd64.tar.gz` (the image, for `docker load`), the Unraid template, the icon and `SHA256SUMS`.
 
-To release: add a `## vX.Y.Z` section to `CHANGELOG.md`, set the same version in `Cargo.toml`, then push the tag (`git tag vX.Y.Z && git push origin vX.Y.Z`).
+To release: add a `## vX.Y.Z` section to `CHANGELOG.md`, set the same version in `Cargo.toml`, and run `cargo test` locally (CI doesn't run on ordinary pushes), then push the tag (`git tag -a vX.Y.Z -m "Minifold vX.Y.Z" && git push origin vX.Y.Z`).
 
 Free `ubuntu-24.04-arm` runners are available for public repositories; a private repo needs paid arm64 runners or a different build setup.
 

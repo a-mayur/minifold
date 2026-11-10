@@ -1,0 +1,7 @@
+<CommunityApplications>
+  <Profile>
+    Minifold, a lightweight self-hosted file compressor. Drop in images, PDFs, videos or any other file, pick a level, and download smaller files. Everything runs on your server; nothing is sent anywhere else. Report problems and ask questions on GitHub Issues.
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/a-mayur/minifold/main/unraid/icon.png</Icon>
+  <WebPage>https://github.com/a-mayur/minifold</WebPage>
+</CommunityApplications>

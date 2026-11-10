@@ -12,6 +12,7 @@
   <Overview>Minifold - a lightweight self-hosted file compressor. Drag and drop images, PDFs, videos or any other file, pick a level, and download smaller files. Everything is processed on this server; nothing is sent anywhere else. Admin page at /admin. Optional GPU video encoding: Intel/AMD - add --device=/dev/dri --group-add=GID to Extra Parameters (GID from: stat -c %g /dev/dri/renderD128); NVIDIA - add --runtime=nvidia and the variables NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,video,utility.</Overview>
   <Category>Tools: MediaApp:Photos MediaApp:Video</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/a-mayur/minifold/main/unraid/minifold.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/a-mayur/minifold/main/unraid/icon.png</Icon>
   <!-- unless-stopped: the admin page's "Restart now" exits Minifold and relies on Docker to start it again.
        99:100 is Unraid's nobody:users, the owner of appdata folders. -->

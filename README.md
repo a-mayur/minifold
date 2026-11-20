@@ -6,6 +6,8 @@ A lightweight self-hosted file compressor. Drag and drop files, pick a level, do
 - **Light:** one small Rust binary with the UI built in.
 - **Tidy:** originals are deleted as soon as their job finishes or fails, compressed files after a retention time you choose, and leftovers are wiped on every start.
 - **Yours to style:** a Material 3 interface with light and dark mode and six pastel color palettes, chosen on the admin page.
+- **In control:** each compressing file shows how long it has been running. Abort a slow one and retry it with another level or **Faster** (quicker encoder settings for videos, PDFs, HEIC and AVIF).
+- **Simple sign-in:** an access token and an admin token, any length and any characters. Leave one empty to turn that sign-in off on a network you trust.
 
 | Light mode | Dark mode |
 |---|---|
@@ -13,12 +15,14 @@ A lightweight self-hosted file compressor. Drag and drop files, pick a level, do
 
 ![The admin page's Theme section: default mode and a pastel palette for light and dark mode](docs/screenshots/admin-light.png)
 
+![Two aborted videos, each with a "Retry with" menu set to Faster and a Retry button](docs/screenshots/abort-retry.png)
+
 > **Status:** Images (JPEG, PNG, WebP, GIF, HEIC, AVIF, TIFF; BMP becomes PNG), PDFs and videos (MP4, MOV, MKV, WebM) are compressed in their own format, with metadata (GPS, camera details, PDF author) removed by default.
 > Other files are compressed with zstd and downloaded as `.zst`.
 
 ## Run with Docker
 
-Images for amd64 and arm64 are published to GitHub Container Registry by CI for every release: `ghcr.io/a-mayur/minifold:latest`, or a version such as `:0.2.0` / `:0.2`. To build it yourself instead:
+Images for amd64 and arm64 are published to GitHub Container Registry by CI for every release: `ghcr.io/a-mayur/minifold:latest`, or a version such as `:0.3.0` / `:0.3`. To build it yourself instead:
 
 ```bash
 echo "MINIFOLD_AUTH_TOKEN=$(openssl rand -hex 24)" > .env

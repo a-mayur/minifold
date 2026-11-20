@@ -14,6 +14,7 @@
 - **Tokens are free-form and optional.** The access and admin tokens can have any length and any characters, and may be the same. Each one can be left empty: then that sign-in is off (a warning is logged at startup). The Sign out button is hidden when there is nothing to sign out of.
 - Tokens are no longer generated, and `/config/tokens.toml` is no longer read. If you relied on generated tokens, copy them from that file into the template's token fields, or delete the file.
 - The Unraid template's overview is split into paragraphs and lists, so it is easier to read in the Apps view.
+- README: the new features, an abort and retry screenshot, and the token rules.
 
 ### Known limits
 

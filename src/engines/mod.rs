@@ -6,6 +6,7 @@ mod image;
 mod jpeg;
 mod pdf;
 mod png;
+mod run;
 mod video;
 mod vips;
 mod webp;
@@ -15,7 +16,7 @@ pub use video::{Hw, detect_hw};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 
 use crate::error::{AppError, ErrorCode};
 use crate::level::Level;
@@ -25,6 +26,17 @@ use crate::storage::remove_if_exists;
 pub struct Options {
     pub level: Level,
     pub strip_metadata: bool,
+    /// Faster encoder settings (video, PDF, HEIC, AVIF) for a slightly larger file.
+    pub fast: bool,
+}
+
+/// Shared by a job and its engine: progress goes out, an abort comes in.
+#[derive(Default)]
+pub struct Control {
+    /// 0–100, reported by video only.
+    pub progress: AtomicU8,
+    /// Set when the user aborts; running programs are killed.
+    pub cancel: AtomicBool,
 }
 
 /// What an engine did with the file.
@@ -98,18 +110,18 @@ pub fn check_tools() -> Result<(), String> {
 }
 
 /// Compresses `input` into `output`. Blocking: call from `spawn_blocking`.
-pub fn process(input: &Path, output: &Path, opts: Options, hw: Hw, progress: &AtomicU8) -> Result<Outcome, AppError> {
+pub fn process(input: &Path, output: &Path, opts: Options, hw: Hw, ctl: &Control) -> Result<Outcome, AppError> {
     let input_size = std::fs::metadata(input).map_err(|e| AppError::io(&e))?.len();
     let (encoded, rename) = match detect(input)? {
         Kind::Jpeg => (jpeg::compress(input, output, opts)?, Rename::Keep),
-        Kind::Png => (png::compress(input, output, opts)?, Rename::Keep),
-        Kind::Webp if webp::is_animated(input)? => (vips::compress(input, output, opts, vips::Target::AnimatedWebp)?, Rename::Keep),
+        Kind::Png => (png::compress(input, output, opts, &ctl.cancel)?, Rename::Keep),
+        Kind::Webp if webp::is_animated(input)? => (vips::compress(input, output, opts, vips::Target::AnimatedWebp, &ctl.cancel)?, Rename::Keep),
         Kind::Webp => (webp::compress(input, output, opts)?, Rename::Keep),
-        Kind::Gif => (gif::compress(input, output, opts)?, Rename::Keep),
-        Kind::Heic => (vips::compress(input, output, opts, vips::Target::Heic)?, Rename::Keep),
-        Kind::Avif => (vips::compress(input, output, opts, vips::Target::Avif)?, Rename::Keep),
-        Kind::Tiff => (vips::compress(input, output, opts, vips::Target::Tiff)?, Rename::Keep),
-        Kind::Bmp => (bmp::compress(input, output, opts)?, Rename::Extension("png")),
+        Kind::Gif => (gif::compress(input, output, opts, &ctl.cancel)?, Rename::Keep),
+        Kind::Heic => (vips::compress(input, output, opts, vips::Target::Heic, &ctl.cancel)?, Rename::Keep),
+        Kind::Avif => (vips::compress(input, output, opts, vips::Target::Avif, &ctl.cancel)?, Rename::Keep),
+        Kind::Tiff => (vips::compress(input, output, opts, vips::Target::Tiff, &ctl.cancel)?, Rename::Keep),
+        Kind::Bmp => (bmp::compress(input, output, opts, &ctl.cancel)?, Rename::Extension("png")),
         Kind::OtherImage(mime) => {
             return Err(AppError::new(
                 ErrorCode::UnsupportedType,
@@ -118,7 +130,7 @@ pub fn process(input: &Path, output: &Path, opts: Options, hw: Hw, progress: &At
                 ),
             ));
         }
-        Kind::Pdf => (pdf::compress(input, output, opts)?, Rename::Keep),
+        Kind::Pdf => (pdf::compress(input, output, opts, &ctl.cancel)?, Rename::Keep),
         Kind::Video(mime) => {
             let Some(container) = video::Container::from_mime(mime) else {
                 return Err(AppError::new(
@@ -126,7 +138,7 @@ pub fn process(input: &Path, output: &Path, opts: Options, hw: Hw, progress: &At
                     format!("This video format ({mime}) isn't supported yet. Supported videos: MP4, MOV, MKV and WebM."),
                 ));
             };
-            (video::compress(input, output, opts, container, hw, progress)?, Rename::Keep)
+            (video::compress(input, output, opts, container, hw, ctl)?, Rename::Keep)
         }
         Kind::Generic => (generic::compress(input, output, opts.level)?, Rename::Append(generic::SUFFIX)),
     };
@@ -150,6 +162,11 @@ fn keep_original(input: &Path, output: &Path, size: u64, reason: String) -> Resu
     remove_if_exists(output).map_err(|e| AppError::io(&e))?;
     std::fs::rename(input, output).map_err(|e| AppError::io(&e))?;
     Ok(Outcome { output_size: size, no_gain: true, rename: Rename::Keep, note: reason })
+}
+
+/// Whether `Options::fast` changes anything for this file (videos, PDFs, HEIC and AVIF).
+pub fn supports_fast(path: &Path) -> bool {
+    matches!(detect(path), Ok(Kind::Video(_) | Kind::Pdf | Kind::Heic | Kind::Avif))
 }
 
 /// Detects the file type from its content (magic bytes), not its name.
@@ -199,7 +216,7 @@ mod tests {
         path
     }
 
-    const LOW: Options = Options { level: Level::Low, strip_metadata: true };
+    const LOW: Options = Options { level: Level::Low, strip_metadata: true, fast: false };
 
     #[test]
     fn detects_by_content_not_name() {
@@ -211,6 +228,8 @@ mod tests {
         assert_eq!(detect(&gif).unwrap(), Kind::Gif);
         let ico = temp_file("x.ico", b"\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x20\x00");
         assert_eq!(detect(&ico).unwrap(), Kind::OtherImage("image/vnd.microsoft.icon"));
+        assert!(supports_fast(&pdf));
+        assert!(!supports_fast(&gif));
     }
 
     #[test]
@@ -218,7 +237,7 @@ mod tests {
         let data = "minifold log line\n".repeat(10_000);
         let input = temp_file("in.txt", data.as_bytes());
         let output = input.with_extension("zst");
-        let outcome = process(&input, &output, Options { level: Level::Medium, ..LOW }, Hw::Off, &AtomicU8::new(0)).unwrap();
+        let outcome = process(&input, &output, Options { level: Level::Medium, ..LOW }, Hw::Off, &Control::default()).unwrap();
         assert!(!outcome.no_gain);
         assert_eq!(outcome.rename, Rename::Append(".zst"));
         let restored = zstd::decode_all(File::open(&output).unwrap()).unwrap();
@@ -240,7 +259,7 @@ mod tests {
         let input = temp_file("noise.bin", &noise);
         let size = std::fs::metadata(&input).unwrap().len();
         let output = input.with_extension("out");
-        let outcome = process(&input, &output, LOW, Hw::Off, &AtomicU8::new(0)).unwrap();
+        let outcome = process(&input, &output, LOW, Hw::Off, &Control::default()).unwrap();
         assert!(outcome.no_gain);
         assert_eq!(outcome.output_size, size);
         assert!(!input.exists());
@@ -249,7 +268,7 @@ mod tests {
     #[test]
     fn rejects_unsupported_images_clearly() {
         let ico = temp_file("y.ico", b"\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x20\x00");
-        let err = process(&ico, &ico.with_extension("out"), LOW, Hw::Off, &AtomicU8::new(0)).unwrap_err();
+        let err = process(&ico, &ico.with_extension("out"), LOW, Hw::Off, &Control::default()).unwrap_err();
         assert_eq!(err.code, ErrorCode::UnsupportedType);
         assert!(err.message.contains("image/vnd.microsoft.icon"));
     }

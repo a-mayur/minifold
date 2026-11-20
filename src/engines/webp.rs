@@ -196,7 +196,7 @@ mod tests {
     fn stripping_keeps_icc_and_orientation_only() {
         let input = crate::engines::tests::temp_file("strip.webp", &sample_webp());
         let output = input.with_extension("out");
-        compress(&input, &output, Options { level: Level::Medium, strip_metadata: true }).unwrap();
+        compress(&input, &output, Options { level: Level::Medium, strip_metadata: true, fast: false }).unwrap();
         let out = std::fs::read(&output).unwrap();
         assert!(Decoder::new(&out).decode().is_some(), "still a valid WebP");
         assert!(!contains(&out, b"SECRET"));
@@ -212,7 +212,7 @@ mod tests {
         let src = Encoder::from_rgb(&px, w, h).encode_lossless();
         let input = crate::engines::tests::temp_file("lossless.webp", &src);
         let output = input.with_extension("out");
-        compress(&input, &output, Options { level: Level::Extra, strip_metadata: true }).unwrap();
+        compress(&input, &output, Options { level: Level::Extra, strip_metadata: true, fast: false }).unwrap();
         let out = std::fs::read(&output).unwrap();
         assert!(matches!(BitstreamFeatures::new(&out).unwrap().format(), Some(::webp::BitstreamFormat::Lossless)));
         assert_eq!(&*Decoder::new(&out).decode().unwrap(), &px[..], "pixels identical");
@@ -222,7 +222,7 @@ mod tests {
     fn keeping_metadata_keeps_exif_and_xmp() {
         let input = crate::engines::tests::temp_file("keep.webp", &sample_webp());
         let output = input.with_extension("out");
-        compress(&input, &output, Options { level: Level::Medium, strip_metadata: false }).unwrap();
+        compress(&input, &output, Options { level: Level::Medium, strip_metadata: false, fast: false }).unwrap();
         let out = std::fs::read(&output).unwrap();
         assert!(Decoder::new(&out).decode().is_some());
         assert!(contains(&out, b"SECRET-GPS"));

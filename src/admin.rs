@@ -21,6 +21,8 @@ pub struct AdminView {
     hw_detected: Vec<HwAccel>,
     /// The active setting names an accelerator that wasn't found at startup.
     hw_missing: Option<HwAccel>,
+    /// False when no admin token is set (the page then has nothing to sign out of).
+    sign_in: bool,
     system: System,
 }
 
@@ -86,6 +88,7 @@ fn view(app: &AppState) -> Result<AdminView, AppError> {
         jobs_in_progress: app.jobs.in_progress(),
         hw_detected: app.hw_detected.clone(),
         hw_missing: Some(app.settings.hw_accel).filter(|a| *a != HwAccel::Off && !app.hw_detected.contains(a)),
+        sign_in: app.config.admin_token.is_some(),
         system: System {
             version: env!("CARGO_PKG_VERSION"),
             arch: std::env::consts::ARCH,

@@ -11,7 +11,8 @@ use std::process::{Command, Output};
 use serde_json::{Value, json};
 
 use super::image::metadata_note;
-use super::{Encoded, Options, engine_error};
+use super::{Encoded, Options, engine_error, run};
+use std::sync::atomic::AtomicBool;
 use crate::error::{AppError, ErrorCode};
 use crate::level::Level;
 use crate::storage::remove_if_exists;
@@ -40,7 +41,7 @@ fn ghostscript_preset(level: Level) -> Option<(&'static str, &'static str)> {
     }
 }
 
-pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, AppError> {
+pub fn compress(input: &Path, output: &Path, opts: Options, cancel: &AtomicBool) -> Result<Encoded, AppError> {
     let doc = Inspection::of(input)?;
     if doc.signed {
         return Ok(Encoded::Unchanged {
@@ -54,12 +55,15 @@ pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, A
     let Some((preset, dpi)) = ghostscript_preset(opts.level) else {
         return finish(&lossless, output, format!("qpdf, lossless{meta}"));
     };
+    if opts.fast {
+        return finish(&lossless, output, format!("qpdf, lossless only (faster: images weren't shrunk){meta}"));
+    }
     if let Some(reason) = doc.ghostscript_would_remove() {
         let note = format!("qpdf, lossless only: images weren't shrunk because that would remove its {reason}{meta}");
         return finish(&lossless, output, note);
     }
 
-    let shrunk = match shrink(input, output, preset, opts.strip_metadata) {
+    let shrunk = match shrink(input, output, preset, opts.strip_metadata, cancel) {
         Ok(path) => path,
         Err(e) => {
             remove(&lossless)?;
@@ -77,9 +81,9 @@ pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, A
 }
 
 /// Ghostscript, a page-count sanity check, then the lossless qpdf pass on its output.
-fn shrink(input: &Path, output: &Path, preset: &str, strip: bool) -> Result<std::path::PathBuf, AppError> {
+fn shrink(input: &Path, output: &Path, preset: &str, strip: bool, cancel: &AtomicBool) -> Result<std::path::PathBuf, AppError> {
     let gs_out = output.with_extension("gs.pdf");
-    let result = ghostscript(input, &gs_out, preset).and_then(|()| {
+    let result = ghostscript(input, &gs_out, preset, cancel).and_then(|()| {
         if page_count(input)? != page_count(&gs_out)? {
             return Err(AppError::new(ErrorCode::EngineFailed, "Ghostscript lost pages from this PDF. Try the Low level."));
         }
@@ -91,15 +95,15 @@ fn shrink(input: &Path, output: &Path, preset: &str, strip: bool) -> Result<std:
     result
 }
 
-fn ghostscript(input: &Path, output: &Path, preset: &str) -> Result<(), AppError> {
-    let out = Command::new("timeout")
+fn ghostscript(input: &Path, output: &Path, preset: &str, cancel: &AtomicBool) -> Result<(), AppError> {
+    let mut cmd = Command::new("timeout");
+    cmd
         .args(["--kill-after=30", GHOSTSCRIPT_TIMEOUT_SECS, "gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite"])
         .args(["-dCompatibilityLevel=1.7", "-dDetectDuplicateImages=true"])
         .arg(format!("-dPDFSETTINGS={preset}"))
         .arg(format!("-sOutputFile={}", output.display()))
-        .arg(input)
-        .output()
-        .map_err(|e| engine_error("Ghostscript", &e))?;
+        .arg(input);
+    let out = run::output(&mut cmd, cancel).map_err(|e| engine_error("Ghostscript", &e))?;
     match out.status.code() {
         Some(0) => Ok(()),
         Some(124) | Some(137) => Err(AppError::new(
@@ -243,9 +247,13 @@ mod tests {
 trailer << /Root 1 0 R /Info 4 0 R /Size 5 >>\n%%EOF\n";
 
     fn run(level: Level, strip: bool) -> (Encoded, Vec<u8>) {
-        let input = crate::engines::tests::temp_file(&format!("doc-{level:?}-{strip}.pdf"), PDF);
+        run_with(Options { level, strip_metadata: strip, fast: false })
+    }
+
+    fn run_with(opts: Options) -> (Encoded, Vec<u8>) {
+        let input = crate::engines::tests::temp_file(&format!("doc-{:?}-{}-{}.pdf", opts.level, opts.strip_metadata, opts.fast), PDF);
         let output = input.with_extension("out");
-        let encoded = compress(&input, &output, Options { level, strip_metadata: strip }).unwrap();
+        let encoded = compress(&input, &output, opts, &AtomicBool::new(false)).unwrap();
         (encoded, std::fs::read(&output).unwrap())
     }
 
@@ -263,6 +271,14 @@ trailer << /Root 1 0 R /Info 4 0 R /Size 5 >>\n%%EOF\n";
     fn ghostscript_path_produces_a_valid_pdf() {
         let (encoded, out) = run(Level::High, false);
         assert!(matches!(encoded, Encoded::Written { .. }));
+        assert!(out.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn fast_skips_ghostscript() {
+        let (encoded, out) = run_with(Options { level: Level::Extra, strip_metadata: true, fast: true });
+        let Encoded::Written { note } = encoded else { panic!("expected a written PDF") };
+        assert!(note.starts_with("qpdf, lossless only (faster"), "{note}");
         assert!(out.starts_with(b"%PDF-"));
     }
 }

@@ -4,7 +4,8 @@ use std::path::Path;
 use std::process::Command;
 
 use super::image::{self, corrupt, metadata_note};
-use super::{Encoded, Options, engine_error};
+use super::{Encoded, Options, engine_error, run};
+use std::sync::atomic::AtomicBool;
 use crate::error::AppError;
 use crate::level::Level;
 use crate::storage::remove_if_exists;
@@ -27,7 +28,7 @@ fn args(level: Level) -> (&'static [&'static str], &'static str) {
     }
 }
 
-pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, AppError> {
+pub fn compress(input: &Path, output: &Path, opts: Options, cancel: &AtomicBool) -> Result<Encoded, AppError> {
     let mut head = [0u8; 10];
     std::io::Read::read_exact(&mut std::fs::File::open(input).map_err(|e| AppError::io(&e))?, &mut head)
         .map_err(|_| corrupt("GIF"))?;
@@ -42,7 +43,7 @@ pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, A
         // Comments, frame names and application extensions (e.g. XMP). The loop count is kept.
         cmd.args(["--no-comments", "--no-names", "--no-extensions"]);
     }
-    let out = cmd.arg("-o").arg(&tmp).arg("--").arg(input).output().map_err(|e| engine_error("gifsicle", &e))?;
+    let out = run::output(cmd.arg("-o").arg(&tmp).arg("--").arg(input), cancel).map_err(|e| engine_error("gifsicle", &e))?;
     if !out.status.success() {
         remove_if_exists(&tmp).map_err(|e| AppError::io(&e))?;
         tracing::warn!("gifsicle failed: {}", String::from_utf8_lossy(&out.stderr).trim());

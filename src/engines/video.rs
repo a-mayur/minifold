@@ -5,12 +5,12 @@
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::Ordering;
 
 use serde_json::Value;
 
 use super::image::metadata_note;
-use super::{Encoded, Options, engine_error};
+use super::{Control, Encoded, Options, engine_error, run};
 use crate::error::{AppError, ErrorCode};
 use crate::level::Level;
 use crate::settings::HwAccel;
@@ -113,7 +113,7 @@ pub fn detect_hw() -> Vec<HwAccel> {
         .filter(|(_, device)| *device)
         .map(|(hw, _)| hw)
         .filter(|hw| {
-            let args = HwArgs::new(*hw, Codec::H264, Level::Medium, false);
+            let args = HwArgs::new(*hw, Codec::H264, Level::Medium, false, false);
             let ok = Command::new("ffmpeg")
                 .args(["-hide_banner", "-loglevel", "error"])
                 .args(&args.before_input)
@@ -149,7 +149,7 @@ struct HwArgs {
 }
 
 impl HwArgs {
-    fn new(hw: HwAccel, codec: Codec, level: Level, ten_bit: bool) -> Self {
+    fn new(hw: HwAccel, codec: Codec, level: Level, ten_bit: bool, fast: bool) -> Self {
         let q = quality(codec, level).to_string();
         let ten = ten_bit && codec == Codec::Hevc;
         let name = |h264: &str, hevc: &str| if codec == Codec::Hevc { hevc.to_string() } else { h264.to_string() };
@@ -158,14 +158,14 @@ impl HwArgs {
         match hw {
             HwAccel::Nvenc => {
                 let enc = name("h264_nvenc", "hevc_nvenc");
-                let mut encoder = s(&["-c:v", &enc, "-preset", "p5", "-rc", "vbr", "-cq", &q, "-b:v", "0", "-pix_fmt"]);
+                let mut encoder = s(&["-c:v", &enc, "-preset", if fast { "p1" } else { "p5" }, "-rc", "vbr", "-cq", &q, "-b:v", "0", "-pix_fmt"]);
                 encoder.push(if ten { "p010le" } else { "yuv420p" }.into());
                 encoder.extend(main10);
                 Self { before_input: vec![], filter: None, encoder, label: format!("{enc} (NVIDIA), CQ {q}") }
             }
             HwAccel::Qsv => {
                 let enc = name("h264_qsv", "hevc_qsv");
-                let mut encoder = s(&["-c:v", &enc, "-global_quality", &q]);
+                let mut encoder = s(&["-c:v", &enc, "-global_quality", &q, "-preset", if fast { "veryfast" } else { "medium" }]);
                 encoder.extend(main10);
                 Self {
                     before_input: s(&["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"]),
@@ -191,22 +191,23 @@ impl HwArgs {
     }
 }
 
-fn cpu_args(codec: Codec, level: Level, ten_bit: bool, container: Container) -> (Vec<String>, String) {
+fn cpu_args(codec: Codec, level: Level, ten_bit: bool, container: Container, fast: bool) -> (Vec<String>, String) {
     let q = quality(codec, level).to_string();
+    let preset = if fast { "veryfast" } else { "medium" };
     let s = |v: &[&str]| v.iter().map(|a| a.to_string()).collect::<Vec<_>>();
     match codec {
-        Codec::H264 => (s(&["-c:v", "libx264", "-preset", "medium", "-crf", &q, "-pix_fmt", "yuv420p"]), format!("libx264, CRF {q}")),
+        Codec::H264 => (s(&["-c:v", "libx264", "-preset", preset, "-crf", &q, "-pix_fmt", "yuv420p"]), format!("libx264 {preset}, CRF {q}")),
         Codec::Hevc => {
             let pix = if ten_bit { "yuv420p10le" } else { "yuv420p" };
-            let mut a = s(&["-c:v", "libx265", "-preset", "medium", "-crf", &q, "-pix_fmt", pix, "-x265-params", "log-level=error"]);
+            let mut a = s(&["-c:v", "libx265", "-preset", preset, "-crf", &q, "-pix_fmt", pix, "-x265-params", "log-level=error"]);
             if container != Container::Mkv {
                 a.extend(s(&["-tag:v", "hvc1"])); // plays on Apple devices
             }
-            (a, format!("libx265, CRF {q}{}", if ten_bit { ", 10-bit" } else { "" }))
+            (a, format!("libx265 {preset}, CRF {q}{}", if ten_bit { ", 10-bit" } else { "" }))
         }
         Codec::Vp9 => (
-            s(&["-c:v", "libvpx-vp9", "-crf", &q, "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "2"]),
-            format!("libvpx-vp9, CRF {q}"),
+            s(&["-c:v", "libvpx-vp9", "-crf", &q, "-b:v", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", if fast { "5" } else { "2" }]),
+            format!("libvpx-vp9{}, CRF {q}", if fast { " fast" } else { "" }),
         ),
     }
 }
@@ -267,7 +268,7 @@ pub fn compress(
     opts: Options,
     container: Container,
     hw: Hw,
-    progress: &AtomicU8,
+    ctl: &Control,
 ) -> Result<Encoded, AppError> {
     if let Hw::Missing(missing) = hw {
         return Err(AppError::new(
@@ -294,12 +295,12 @@ pub fn compress(
     }
     let (before_input, video, label) = match accel {
         Some(a) => {
-            let h = HwArgs::new(a, codec, opts.level, ten_bit);
+            let h = HwArgs::new(a, codec, opts.level, ten_bit, opts.fast);
             filters.extend(h.filter);
             (h.before_input, h.encoder, h.label)
         }
         None => {
-            let (args, label) = cpu_args(codec, opts.level, ten_bit, container);
+            let (args, label) = cpu_args(codec, opts.level, ten_bit, container, opts.fast);
             (vec![], args, format!("{label} (CPU)"))
         }
     };
@@ -318,7 +319,7 @@ pub fn compress(
     args.extend(container.muxer().iter().map(|a| a.to_string()));
     args.push(tmp.display().to_string());
 
-    if let Err(e) = run_ffmpeg(&args, p.duration, progress) {
+    if let Err(e) = run_ffmpeg(&args, p.duration, ctl) {
         remove(&tmp)?;
         return Err(match (e.code, accel) {
             (ErrorCode::EngineFailed, Some(a)) => AppError::new(
@@ -350,7 +351,7 @@ pub fn compress(
     remux.extend(metadata_args(&p, true));
     remux.extend(container.muxer().iter().map(|a| a.to_string()));
     remux.push(output.display().to_string());
-    if let Err(e) = run_ffmpeg(&remux, p.duration, progress) {
+    if let Err(e) = run_ffmpeg(&remux, p.duration, ctl) {
         remove(output)?;
         return Err(e);
     }
@@ -406,8 +407,9 @@ fn metadata_args(p: &Probe, strip: bool) -> Vec<String> {
 }
 
 /// Runs ffmpeg under a time limit, reporting progress (0–100) from `-progress`.
-fn run_ffmpeg(args: &[String], duration: Option<f64>, progress: &AtomicU8) -> Result<(), AppError> {
-    let mut child = Command::new("timeout")
+fn run_ffmpeg(args: &[String], duration: Option<f64>, ctl: &Control) -> Result<(), AppError> {
+    let progress = &ctl.progress;
+    let mut child = run::in_own_group(&mut Command::new("timeout"))
         .args(["--kill-after=30", VIDEO_TIMEOUT_SECS, "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error"])
         .args(["-nostats", "-progress", "pipe:1", "-y"])
         .args(args)
@@ -422,15 +424,22 @@ fn run_ffmpeg(args: &[String], duration: Option<f64>, progress: &AtomicU8) -> Re
         let _ = stderr.read_to_string(&mut s);
         s
     });
-    for line in BufReader::new(child.stdout.take().expect("piped")).lines().map_while(Result::ok) {
-        if let (Some(us), Some(total)) = (line.strip_prefix("out_time_us=").and_then(|v| v.parse::<f64>().ok()), duration)
-            && total > 0.0
-        {
-            progress.store((us / 1e6 / total * 100.0).clamp(0.0, 99.0) as u8, Ordering::Relaxed);
+    let stdout = child.stdout.take().expect("piped");
+    let status = run::until_done(child.id(), &ctl.cancel, || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let (Some(us), Some(total)) = (line.strip_prefix("out_time_us=").and_then(|v| v.parse::<f64>().ok()), duration)
+                && total > 0.0
+            {
+                progress.store((us / 1e6 / total * 100.0).clamp(0.0, 99.0) as u8, Ordering::Relaxed);
+            }
         }
-    }
-    let status = child.wait().map_err(|e| engine_error("FFmpeg", &e))?;
+        child.wait()
+    })
+    .map_err(|e| engine_error("FFmpeg", &e))?;
     let stderr = errors.join().unwrap_or_default();
+    if ctl.cancel.load(Ordering::Relaxed) {
+        return Err(engine_error("FFmpeg", &run::aborted()));
+    }
     match status.code() {
         Some(0) => {
             progress.store(100, Ordering::Relaxed);
@@ -493,6 +502,17 @@ mod tests {
         assert_eq!(choose_codec(Container::Mov, "hevc", false), Codec::Hevc);
         assert_eq!(choose_codec(Container::Mkv, "av1", true), Codec::Hevc, "HDR stays HDR");
         assert_eq!(choose_codec(Container::Webm, "vp8", false), Codec::Vp9);
+    }
+
+    #[test]
+    fn fast_uses_quicker_encoder_presets() {
+        let has = |args: &[String], v: &str| args.iter().any(|a| a == v);
+        let (normal, _) = cpu_args(Codec::H264, Level::High, false, Container::Mp4, false);
+        let (fast, label) = cpu_args(Codec::H264, Level::High, false, Container::Mp4, true);
+        assert!(has(&normal, "medium") && has(&fast, "veryfast"));
+        assert!(label.contains("veryfast"));
+        assert!(has(&cpu_args(Codec::Vp9, Level::High, false, Container::Webm, true).0, "5"));
+        assert!(has(&HwArgs::new(HwAccel::Nvenc, Codec::Hevc, Level::High, false, true).encoder, "p1"));
     }
 
     #[test]

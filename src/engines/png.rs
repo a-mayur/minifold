@@ -7,7 +7,8 @@ use std::process::Command;
 use oxipng::{PngError, StripChunks};
 
 use super::image::{self, Candidate, corrupt, metadata_note};
-use super::{Encoded, Options, engine_error};
+use super::{Encoded, Options, engine_error, run};
+use std::sync::atomic::AtomicBool;
 use crate::error::AppError;
 use crate::level::Level;
 use crate::storage::remove_if_exists;
@@ -40,7 +41,7 @@ fn pngquant_quality(level: Level) -> Option<&'static str> {
     }
 }
 
-pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, AppError> {
+pub fn compress(input: &Path, output: &Path, opts: Options, cancel: &AtomicBool) -> Result<Encoded, AppError> {
     let data = image::read(input)?;
     let info = Info::read(&data)?;
     image::check_pixels(info.width, info.height)?;
@@ -55,7 +56,7 @@ pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, A
     let mut candidates = vec![Candidate { bytes: lossless, note: format!("oxipng, lossless{meta}") }];
 
     if let Some(quality) = pngquant_quality(opts.level).filter(|_| info.pngquant_safe(opts.strip_metadata))
-        && let Some(quantized) = pngquant(input, output, quality)?
+        && let Some(quantized) = pngquant(input, output, quality, cancel)?
         && let Some(bytes) = optimize(&quantized, opts)?
     {
         candidates.push(Candidate { bytes, note: format!("pngquant (quality {quality}) + oxipng{meta}") });
@@ -86,15 +87,13 @@ fn optimize(data: &[u8], opts: Options) -> Result<Option<Vec<u8>>, AppError> {
 
 /// Runs pngquant; `None` when it declined (quality too low or no gain).
 /// Metadata stripping is left to oxipng, which keeps the chunks that affect display.
-fn pngquant(input: &Path, output: &Path, quality: &str) -> Result<Option<Vec<u8>>, AppError> {
+fn pngquant(input: &Path, output: &Path, quality: &str, cancel: &AtomicBool) -> Result<Option<Vec<u8>>, AppError> {
     let tmp = output.with_extension("pngquant");
-    let out = Command::new("pngquant")
-        .args(["--quality", quality, "--speed", "3", "--force", "--output"])
-        .arg(&tmp)
-        .arg("--")
-        .arg(input)
-        .output()
-        .map_err(|e| engine_error("pngquant", &e))?;
+    let out = run::output(
+        Command::new("pngquant").args(["--quality", quality, "--speed", "3", "--force", "--output"]).arg(&tmp).arg("--").arg(input),
+        cancel,
+    )
+    .map_err(|e| engine_error("pngquant", &e))?;
     let result = match out.status.code() {
         Some(0) => std::fs::read(&tmp).map(Some).map_err(|e| AppError::io(&e)),
         Some(code) if PNGQUANT_SKIPPED.contains(&code) => Ok(None),

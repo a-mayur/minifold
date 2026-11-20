@@ -5,7 +5,8 @@ use std::path::Path;
 use std::process::Command;
 
 use super::image::{self, corrupt, metadata_note};
-use super::{Encoded, Options, engine_error};
+use super::{Encoded, Options, engine_error, run};
+use std::sync::atomic::AtomicBool;
 use crate::error::{AppError, ErrorCode};
 use crate::level::Level;
 use crate::storage::remove_if_exists;
@@ -46,6 +47,15 @@ fn heif_quality(level: Level) -> u8 {
         Level::High => 50,
         Level::Extra => 35,
     }
+}
+
+/// libvips' default encoder effort is 4 (of 0–9); the fastest is 0.
+fn heif_effort(fast: bool) -> &'static str {
+    if fast { ",effort=0" } else { "" }
+}
+
+fn fast_note(fast: bool) -> &'static str {
+    if fast { ", fast" } else { "" }
 }
 
 fn webp_quality(level: Level) -> u8 {
@@ -95,7 +105,7 @@ pub fn check_vips() -> Result<(), String> {
     Ok(())
 }
 
-pub fn compress(input: &Path, output: &Path, opts: Options, target: Target) -> Result<Encoded, AppError> {
+pub fn compress(input: &Path, output: &Path, opts: Options, target: Target, cancel: &AtomicBool) -> Result<Encoded, AppError> {
     let bad = || corrupt(target.name());
     let width: u64 = header(input, "width", target)?.parse().map_err(|_| bad())?;
     let height: u64 = header(input, "height", target)?.parse().map_err(|_| bad())?;
@@ -113,11 +123,11 @@ pub fn compress(input: &Path, output: &Path, opts: Options, target: Target) -> R
     let (save, note) = match target {
         Target::Heic => {
             let q = heif_quality(opts.level);
-            (format!("compression=hevc,Q={q},{keep}"), format!("libheif (HEVC), quality {q}"))
+            (format!("compression=hevc,Q={q},{keep}{}", heif_effort(opts.fast)), format!("libheif (HEVC), quality {q}{}", fast_note(opts.fast)))
         }
         Target::Avif => {
             let q = heif_quality(opts.level);
-            (format!("compression=av1,Q={q},{keep}"), format!("libheif (AV1), quality {q}"))
+            (format!("compression=av1,Q={q},{keep}{}", heif_effort(opts.fast)), format!("libheif (AV1), quality {q}{}", fast_note(opts.fast)))
         }
         Target::Tiff => {
             let (c, label) = tiff_compression(opts.level);
@@ -141,11 +151,7 @@ pub fn compress(input: &Path, output: &Path, opts: Options, target: Target) -> R
     let operation = if target == Target::Tiff && opts.strip_metadata && !multi { "autorot" } else { "copy" };
 
     let tmp = output.with_extension(format!("vips.{}", target.extension()));
-    let out = vips("vips")
-        .arg(operation)
-        .arg(load)
-        .arg(format!("{}[{save}]", tmp.display()))
-        .output()
+    let out = run::output(vips("vips").arg(operation).arg(load).arg(format!("{}[{save}]", tmp.display())), cancel)
         .map_err(|e| engine_error("libvips", &e))?;
     if !out.status.success() {
         remove_if_exists(&tmp).map_err(|e| AppError::io(&e))?;

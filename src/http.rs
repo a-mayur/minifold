@@ -38,7 +38,7 @@ pub fn router(app: AppState) -> Router {
     let user_api = Router::new()
         .route("/config", get(config))
         .route("/jobs", post(create_job).layer(DefaultBodyLimit::disable()))
-        .route("/jobs/{id}", get(job_status))
+        .route("/jobs/{id}", get(job_status).delete(abort_job))
         .route("/jobs/{id}/download", get(download))
         .route_layer(middleware::from_fn_with_state(app.clone(), auth::require_user));
 
@@ -109,17 +109,19 @@ struct LoginBody {
 }
 
 async fn user_login(State(app): State<AppState>, body: Bytes) -> Result<Response, AppError> {
-    login(&body, &app.config.auth_token, auth::USER_COOKIE, "That access token is wrong.")
+    login(&body, app.config.auth_token.as_deref(), auth::USER_COOKIE, "That access token is wrong.")
 }
 
 async fn admin_login(State(app): State<AppState>, body: Bytes) -> Result<Response, AppError> {
-    login(&body, &app.config.admin_token, auth::ADMIN_COOKIE, "That admin token is wrong.")
+    login(&body, app.config.admin_token.as_deref(), auth::ADMIN_COOKIE, "That admin token is wrong.")
 }
 
-fn login(body: &[u8], expected: &str, cookie: &str, wrong: &str) -> Result<Response, AppError> {
+/// `expected` is `None` when sign-in is off: then there is nothing to check.
+fn login(body: &[u8], expected: Option<&str>, cookie: &str, wrong: &str) -> Result<Response, AppError> {
+    let Some(expected) = expected else { return Ok(StatusCode::NO_CONTENT.into_response()) };
     let body: LoginBody = serde_json::from_slice(body)
         .map_err(|_| AppError::new(ErrorCode::InvalidRequest, "Expected JSON like {\"token\": \"...\"}."))?;
-    if !auth::tokens_match(body.token.trim(), expected) {
+    if !auth::tokens_match(body.token.as_bytes(), expected.as_bytes()) {
         return Err(AppError::new(ErrorCode::Unauthorized, wrong));
     }
     let mut res = StatusCode::NO_CONTENT.into_response();
@@ -136,6 +138,7 @@ fn logout(cookie: &str) -> Response {
 async fn config(State(app): State<AppState>) -> Json<serde_json::Value> {
     let s = &app.settings;
     Json(json!({
+        "sign_in": app.config.auth_token.is_some(),
         "max_upload_bytes": s.max_upload_bytes(),
         "delete_originals_after_job": s.delete_originals_after_job,
         "original_retention_minutes": s.original_retention_minutes,
@@ -149,9 +152,10 @@ async fn config(State(app): State<AppState>) -> Json<serde_json::Value> {
 struct UploadParams {
     name: Option<String>,
     level: Option<String>,
+    method: Option<String>,
 }
 
-/// Upload one file as the raw request body: `POST /api/jobs?name=<file name>&level=<level>`.
+/// Upload one file as the raw request body: `POST /api/jobs?name=<file name>&level=<level>[&method=fast]`.
 async fn create_job(
     State(app): State<AppState>,
     Query(params): Query<UploadParams>,
@@ -164,6 +168,13 @@ async fn create_job(
         .as_deref()
         .ok_or_else(|| AppError::new(ErrorCode::InvalidLevel, "Choose a compression level."))?
         .parse()?;
+    let fast = match params.method.as_deref() {
+        None | Some("standard") => false,
+        Some("fast") => true,
+        Some(other) => {
+            return Err(AppError::new(ErrorCode::InvalidRequest, format!("Unknown method {other:?}. Use \"standard\" or \"fast\".")));
+        }
+    };
 
     let max = app.settings.max_upload_bytes();
     if let Some(len) = headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
@@ -187,12 +198,21 @@ async fn create_job(
     }
 
     tracing::info!(job = %id, size, "upload received");
-    let job = app.jobs.submit(id, file_name, level, size);
+    let job = app.jobs.submit(id, file_name, level, fast, size);
     Ok((StatusCode::ACCEPTED, Json(job)))
 }
 
 async fn job_status(State(app): State<AppState>, Path(id): Path<Uuid>) -> Result<Json<crate::jobs::Job>, AppError> {
     app.jobs.get(id).map(Json).ok_or_else(gone)
+}
+
+/// Aborts a queued or running job (or removes a finished one) and deletes its files now.
+async fn abort_job(State(app): State<AppState>, Path(id): Path<Uuid>) -> Result<StatusCode, AppError> {
+    if !app.jobs.forget(id) {
+        return Err(gone());
+    }
+    tracing::info!(job = %id, "deleted by the user");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn download(State(app): State<AppState>, Path(id): Path<Uuid>) -> Result<Response, AppError> {

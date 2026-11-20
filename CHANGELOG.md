@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0
+
+### Added
+
+- **Abort.** Files that are compressing or waiting in the queue have an Abort button. Aborting stops the running program (FFmpeg, Ghostscript, libvips, pngquant, gifsicle) right away and deletes the file from the server.
+- **Retry with another method.** An aborted file can be retried from the same tab with a different level, or with **Faster**: quicker encoder settings for videos (x264/x265 `veryfast`, faster VP9, the GPU's fastest preset), PDFs (lossless qpdf only, no Ghostscript), HEIC and AVIF (lowest encoder effort). The file is sent again from the browser, so nothing is kept on the server after an abort.
+- Compressing files show how long they have been running.
+- API: `DELETE /api/jobs/{id}`, the `method=fast` upload option and the `fast` / `fast_available` job fields.
+
+### Changed
+
+- **Tokens are free-form and optional.** The access and admin tokens can have any length and any characters, and may be the same. Each one can be left empty: then that sign-in is off (a warning is logged at startup). The Sign out button is hidden when there is nothing to sign out of.
+- Tokens are no longer generated, and `/config/tokens.toml` is no longer read. If you relied on generated tokens, copy them from that file into the template's token fields, or delete the file.
+- The Unraid template's overview is split into paragraphs and lists, so it is easier to read in the Apps view.
+
+### Known limits
+
+- JPEG, PNG (oxipng), WebP and zstd compression run inside Minifold and can't be interrupted. An aborted file of these types disappears at once, but its worker stays busy until that file finishes (usually seconds).
+- The lossless qpdf pass of a PDF isn't interrupted either; Ghostscript, which takes most of the time, is.
+
 ## v0.2.0
 
 ### Added

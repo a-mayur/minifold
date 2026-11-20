@@ -59,6 +59,7 @@ const LEVEL_DESC = {
   high: 'Much smaller files with slight quality loss.',
   extra: 'Smallest files; videos are capped at 720p.',
 };
+const LEVEL_NAME = { low: 'Low', medium: 'Medium', high: 'High', extra: 'Extra' };
 
 // ---- views ----
 
@@ -74,7 +75,7 @@ function showLogin(message) {
 function showApp() {
   $('login-view').hidden = true;
   $('app-view').hidden = false;
-  $('logout').hidden = false;
+  $('logout').hidden = !state.config.sign_in;
   $('drop-hint').textContent =
     `Any file up to ${human(state.maxBytes)} each. JPEG, PNG, WebP, GIF, HEIC, AVIF and TIFF keep their format, ` +
     'BMP becomes PNG, PDFs and videos (MP4, MOV, MKV, WebM) keep their format, and other files are compressed with zstd (.zst).';
@@ -136,7 +137,7 @@ function addFiles(list) {
     } else if (file.size === 0) {
       reject(file.name, 'EMPTY_FILE', "It's empty (or a folder), so there's nothing to compress.");
     } else {
-      state.files.push({ key: nextKey++, file, status: 'ready', progress: 0, job: null, error: null });
+      state.files.push({ key: nextKey++, file, status: 'ready', progress: 0, job: null, error: null, level: null, fast: false });
     }
   }
   render();
@@ -147,7 +148,8 @@ function addFiles(list) {
 function upload(item) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
-    const url = `/api/jobs?name=${encodeURIComponent(item.file.name)}&level=${state.level}`;
+    const method = item.fast ? '&method=fast' : '';
+    const url = `/api/jobs?name=${encodeURIComponent(item.file.name)}&level=${item.level}${method}`;
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => {
@@ -165,7 +167,7 @@ function upload(item) {
       }
       if (xhr.status === 202 && body) {
         item.job = body;
-        item.status = body.state;
+        setStatus(item, body.state);
       } else if (body && body.code) {
         fail(item, new ApiError(body.code, body.message, xhr.status));
       } else {
@@ -189,17 +191,41 @@ function fail(item, err) {
   if (err.status === 401) showLogin('Your session ended. Sign in again to continue.');
 }
 
+/** Also starts the elapsed-time clock when compression begins. */
+function setStatus(item, status) {
+  if (status === 'running' && item.status !== 'running') item.runningSince = Date.now();
+  item.status = status;
+}
+
+const elapsed = (item) => Math.round((Date.now() - (item.runningSince ?? Date.now())) / 1000);
+
+function clock(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = String(seconds % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const inProgress = (item) => item.status === 'queued' || item.status === 'running';
+
 async function poll(item) {
-  while (item.status === 'queued' || item.status === 'running') {
+  const id = item.job.id;
+  // Stops when the file was aborted or retried (a retry gets a new job id) meanwhile.
+  const current = () => inProgress(item) && item.job?.id === id;
+  while (current()) {
     await sleep(1000);
+    if (!current()) return;
     try {
-      const res = await request(`/api/jobs/${item.job.id}`);
-      item.job = await res.json();
-      item.status = item.job.state;
-      if (item.status === 'failed') item.error = item.job.error;
+      const res = await request(`/api/jobs/${id}`);
+      const latest = await res.json();
+      if (!current()) return;
+      item.job = latest;
+      setStatus(item, latest.state);
+      if (item.status === 'failed') item.error = latest.error;
     } catch (err) {
+      if (!current()) return;
       fail(item, err.code === 'NETWORK_ERROR'
         ? new ApiError(err.code, 'Lost contact with the server while waiting. Reload the page to check again.', 0)
         : err);
@@ -229,11 +255,43 @@ async function download(item, href) {
   }
 }
 
+/** Stops a queued or running file on the server; its files there are deleted right away. */
+async function abort(item) {
+  item.aborting = true;
+  render();
+  try {
+    await request(`/api/jobs/${item.job.id}`, { method: 'DELETE' });
+    item.abortedAfter = item.status === 'running' ? elapsed(item) : null;
+    item.status = 'aborted';
+    item.retryChoice = item.job.fast_available && !item.fast ? 'fast' : item.level;
+  } catch (err) {
+    if (err.status === 401) showLogin('Your session ended. Sign in again to continue.');
+    // Otherwise it finished or failed meanwhile: the next poll shows that.
+  }
+  item.aborting = false;
+  render();
+}
+
+/** Sends the file again from this tab, with the level or faster method picked after aborting. */
+async function retry(item) {
+  item.fast = item.retryChoice === 'fast';
+  if (!item.fast) item.level = item.retryChoice;
+  item.job = null;
+  item.error = null;
+  item.progress = 0;
+  item.runningSince = null;
+  await upload(item);
+  render();
+  if (inProgress(item)) await poll(item);
+  render();
+}
+
 async function compressAll() {
   state.busy = true;
   render();
   const polls = [];
   for (const item of state.files.filter((f) => f.status === 'ready')) {
+    item.level = state.level;
     await upload(item);
     if (item.status === 'queued' || item.status === 'running') polls.push(poll(item));
     render();
@@ -256,6 +314,7 @@ const STATUS_TEXT = {
   uploading: 'Uploading',
   queued: 'Waiting in queue',
   running: 'Compressing…',
+  aborted: 'Aborted',
   done: 'Done',
   failed: 'Failed',
   gone: 'Deleted',
@@ -272,21 +331,49 @@ function messageBox(className, title, message, code) {
 }
 
 function fileRow(item) {
+  // An aborted row is kept as is, so re-renders for other files don't close its open dropdown.
+  if (item.status === 'aborted' && item.row) return item.row;
   const li = el('li', `file ${item.status}`);
+  item.row = item.status === 'aborted' ? li : null;
   li.appendChild(el('span', 'badge-type', extension(item.file.name)));
 
   const main = el('div', 'file-main');
   main.appendChild(el('div', 'file-name', item.file.name));
   const note = item.status === 'done' && !item.job.no_gain ? ` · ${item.job.note}` : '';
-  main.appendChild(el('div', 'file-sub', `${human(item.file.size)} · ${STATUS_TEXT[item.status]}${note}`));
+  const aborted = item.abortedAfter == null ? '' : ` after ${clock(item.abortedAfter)}`;
+  const status = item.status === 'aborted' ? `Aborted${aborted} · deleted from the server` : STATUS_TEXT[item.status];
+  main.appendChild(el('div', 'file-sub', `${human(item.file.size)} · ${status}${note}`));
   li.appendChild(main);
 
   const encoding = item.status === 'running' && item.job.progress > 0;
-  if (item.status === 'uploading' || encoding) {
-    const pct = encoding ? item.job.progress : Math.round(item.progress * 100);
+  if (item.status === 'running' || item.status === 'queued') {
+    if (item.status === 'running') {
+      const bar = el('div', encoding ? 'progress' : 'progress indeterminate');
+      bar.setAttribute('role', 'progressbar');
+      bar.setAttribute('aria-label', `Compressing ${item.file.name}`);
+      const fill = el('span');
+      if (encoding) {
+        bar.setAttribute('aria-valuenow', String(item.job.progress));
+        fill.style.width = `${item.job.progress}%`;
+      }
+      bar.appendChild(fill);
+      const time = clock(elapsed(item));
+      li.append(bar, el('span', 'run-meta', encoding ? `${item.job.progress}% · ${time}` : time));
+    }
+    const stop = el('button', 'btn outlined abort');
+    stop.type = 'button';
+    stop.disabled = !!item.aborting;
+    stop.setAttribute('aria-label', `Abort ${item.file.name}`);
+    stop.append(icon('close', 18), 'Abort');
+    stop.addEventListener('click', () => abort(item));
+    li.appendChild(stop);
+  } else if (item.status === 'aborted') {
+    li.appendChild(retryControls(item));
+  } else if (item.status === 'uploading') {
+    const pct = Math.round(item.progress * 100);
     const bar = el('div', 'progress');
     bar.setAttribute('role', 'progressbar');
-    bar.setAttribute('aria-label', `${encoding ? 'Compressing' : 'Uploading'} ${item.file.name}`);
+    bar.setAttribute('aria-label', `Uploading ${item.file.name}`);
     bar.setAttribute('aria-valuenow', String(pct));
     const fill = el('span');
     fill.style.width = `${pct}%`;
@@ -330,6 +417,44 @@ function fileRow(item) {
   return li;
 }
 
+function retryControls(item) {
+  const box = el('div', 'retry');
+  const field = el('label', 'field select');
+  const select = el('select');
+  if (item.job.fast_available) {
+    const fast = el('option', '', `Faster: ${LEVEL_NAME[item.level]} level, quicker encoder, slightly larger file`);
+    fast.value = 'fast';
+    select.appendChild(fast);
+  }
+  for (const [level, name] of Object.entries(LEVEL_NAME)) {
+    const aborted = level === item.level && !item.fast ? ' (aborted)' : '';
+    const option = el('option', '', `${name} level: ${LEVEL_DESC[level]}${aborted}`);
+    option.value = level;
+    select.appendChild(option);
+  }
+  select.value = item.retryChoice;
+  select.addEventListener('change', () => {
+    item.retryChoice = select.value;
+  });
+  field.append(select, el('span', '', 'Retry with'));
+
+  const go = el('button', 'btn tonal');
+  go.type = 'button';
+  go.append(icon('restart_alt', 18), 'Retry');
+  go.addEventListener('click', () => retry(item));
+
+  const remove = el('button', 'icon-btn small');
+  remove.type = 'button';
+  remove.setAttribute('aria-label', `Remove ${item.file.name}`);
+  remove.appendChild(icon('close', 20));
+  remove.addEventListener('click', () => {
+    state.files = state.files.filter((f) => f !== item);
+    render();
+  });
+  box.append(field, go, remove);
+  return box;
+}
+
 function totals() {
   const done = state.files.filter((f) => f.status === 'done');
   const failed = state.files.filter((f) => f.status === 'failed').length;
@@ -345,9 +470,17 @@ function totals() {
   return parts.join(' · ');
 }
 
+/** Like replaceChildren, but rows that stay in place aren't detached. */
+function placeRows(list, rows) {
+  const keep = new Set(rows);
+  for (const child of [...list.children]) if (!keep.has(child)) child.remove();
+  rows.forEach((row, i) => {
+    if (list.children[i] !== row) list.insertBefore(row, list.children[i] ?? null);
+  });
+}
+
 function render() {
-  const list = $('files');
-  list.replaceChildren(...state.files.map(fileRow));
+  placeRows($('files'), state.files.map(fileRow));
   const ready = state.files.filter((f) => f.status === 'ready').length;
   $('count').textContent = `(${state.files.length})`;
   $('empty').hidden = state.files.length > 0;

@@ -209,8 +209,9 @@ async function load() {
     const res = await request('/api/admin/settings');
     $('login-view').hidden = true;
     $('admin-view').hidden = false;
-    $('logout').hidden = false;
-    render(await res.json());
+    const view = await res.json();
+    $('logout').hidden = !view.sign_in;
+    render(view);
   } catch (err) {
     if (err.status === 401) showLogin();
     else showLogin(err.message);

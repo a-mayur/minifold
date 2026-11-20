@@ -243,7 +243,7 @@ mod tests {
         let data = sample_cmyk(true);
         let input = crate::engines::tests::temp_file("adobe-cmyk.jpg", &data);
         let output = input.with_extension("out");
-        compress(&input, &output, Options { level: Level::Low, strip_metadata: true }).unwrap();
+        compress(&input, &output, Options { level: Level::Low, strip_metadata: true, fast: false }).unwrap();
         let read = |d: &[u8]| -> Vec<u8> {
             match Decompress::new_mem(d).unwrap().image().unwrap() {
                 mozjpeg::decompress::Format::CMYK(mut s) => s.read_scanlines::<u8>().unwrap(),
@@ -261,11 +261,11 @@ mod tests {
     fn cmyk_without_adobe_marker_is_not_reencoded() {
         let input = crate::engines::tests::temp_file("plain-cmyk.jpg", &sample_cmyk(false));
         let output = input.with_extension("out");
-        match compress(&input, &output, Options { level: Level::Low, strip_metadata: true }).unwrap() {
+        match compress(&input, &output, Options { level: Level::Low, strip_metadata: true, fast: false }).unwrap() {
             Encoded::Written { note } => assert!(note.contains("no Adobe color marker"), "{note}"),
             other => panic!("comment should have been stripped: {other:?}"),
         }
-        match compress(&input, &output, Options { level: Level::Low, strip_metadata: false }).unwrap() {
+        match compress(&input, &output, Options { level: Level::Low, strip_metadata: false, fast: false }).unwrap() {
             Encoded::Unchanged { reason } => assert!(reason.contains("no Adobe color marker")),
             other => panic!("must not re-encode: {other:?}"),
         }
@@ -293,7 +293,7 @@ mod tests {
     }
 
     fn opts(strip: bool) -> Options {
-        Options { level: Level::Medium, strip_metadata: strip }
+        Options { level: Level::Medium, strip_metadata: strip, fast: false }
     }
 
     #[test]

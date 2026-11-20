@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,10 @@ pub struct Job {
     pub id: Uuid,
     pub file_name: String,
     pub level: Level,
+    /// Faster encoder settings were asked for.
+    pub fast: bool,
+    /// Whether `fast` changes anything for this file type, so the page can offer it on a retry.
+    pub fast_available: bool,
     pub original_size: u64,
     #[serde(flatten)]
     pub state: JobState,
@@ -37,7 +41,7 @@ pub struct Job {
     #[serde(skip)]
     finished_at: Option<Instant>,
     #[serde(skip)]
-    progress: Arc<AtomicU8>,
+    ctl: Arc<engines::Control>,
 }
 
 /// Retention rules, fixed at startup from the settings.
@@ -64,7 +68,7 @@ impl Jobs {
     pub fn get(&self, id: Uuid) -> Option<Job> {
         let mut job = self.lock().get(&id).cloned()?;
         if let JobState::Running { progress } = &mut job.state {
-            *progress = job.progress.load(Ordering::Relaxed);
+            *progress = job.ctl.progress.load(Ordering::Relaxed);
         }
         Some(job)
     }
@@ -78,27 +82,33 @@ impl Jobs {
     }
 
     /// Registers an uploaded file and queues it for compression.
-    pub fn submit(self: &Arc<Self>, id: Uuid, file_name: String, level: Level, original_size: u64) -> Job {
+    pub fn submit(self: &Arc<Self>, id: Uuid, file_name: String, level: Level, fast: bool, original_size: u64) -> Job {
+        let fast_available = engines::supports_fast(&self.storage.upload_path(id));
         let job = Job {
             id,
             file_name,
             level,
+            fast,
+            fast_available,
             original_size,
             state: JobState::Queued,
             download_name: None,
             uploaded_at: Instant::now(),
             finished_at: None,
-            progress: Arc::new(AtomicU8::new(0)),
+            ctl: Arc::default(),
         };
         self.lock().insert(id, job.clone());
-        tokio::spawn(Arc::clone(self).run(id, level));
+        tokio::spawn(Arc::clone(self).run(id, level, fast, Arc::clone(&job.ctl)));
         job
     }
 
-    /// Deletes a job and its files (used after a one-time download).
-    pub fn forget(&self, id: Uuid) {
-        self.lock().remove(&id);
+    /// Deletes a job and its files: after a one-time download, or when the user aborts it
+    /// (a running engine is stopped). Returns false when there was no such job.
+    pub fn forget(&self, id: Uuid) -> bool {
+        let Some(job) = self.lock().remove(&id) else { return false };
+        job.ctl.cancel.store(true, Ordering::Relaxed);
         self.delete_files(id);
+        true
     }
 
     /// Applies the retention policy. Blocking: call from `spawn_blocking`. Returns files deleted.
@@ -134,25 +144,31 @@ impl Jobs {
         removed + self.storage.remove_orphans(&known, self.policy.output_retention)
     }
 
-    async fn run(self: Arc<Self>, id: Uuid, level: Level) {
+    async fn run(self: Arc<Self>, id: Uuid, level: Level, fast: bool, ctl: Arc<engines::Control>) {
         let _slot = Arc::clone(&self.slots).acquire_owned().await.expect("job semaphore closed");
         if !self.update(id, |job| job.state = JobState::Running { progress: 0 }) {
             return; // deleted while queued
         }
-        tracing::info!(job = %id, ?level, "compression started");
+        tracing::info!(job = %id, ?level, fast, "compression started");
 
         let input = self.storage.upload_path(id);
         let output = self.storage.output_path(id);
         let (input_c, output_c) = (input.clone(), output.clone());
-        let opts = engines::Options { level, strip_metadata: self.strip_metadata };
-        let (hw, progress) = (self.hw, self.get(id).map(|j| j.progress).unwrap_or_default());
-        let result = tokio::task::spawn_blocking(move || engines::process(&input_c, &output_c, opts, hw, &progress))
+        let opts = engines::Options { level, strip_metadata: self.strip_metadata, fast };
+        let (hw, engine_ctl) = (self.hw, Arc::clone(&ctl));
+        let result = tokio::task::spawn_blocking(move || engines::process(&input_c, &output_c, opts, hw, &engine_ctl))
             .await
             .unwrap_or_else(|panic| {
                 tracing::error!(job = %id, "engine panicked: {panic}");
                 Err(AppError::new(ErrorCode::EngineFailed, "Compression crashed unexpectedly."))
             });
 
+        if ctl.cancel.load(Ordering::Relaxed) {
+            // `forget` already deleted the files, but the engine may have written its result since.
+            tracing::info!(job = %id, "compression aborted");
+            self.delete_files(id);
+            return;
+        }
         if self.policy.delete_originals_after_job {
             self.delete(&input);
         }
@@ -220,7 +236,7 @@ mod tests {
     async fn run_job(jobs: &Arc<Jobs>, storage: &Storage) -> Uuid {
         let id = Uuid::new_v4();
         std::fs::write(storage.upload_path(id), "line\n".repeat(5000)).unwrap();
-        jobs.submit(id, "a.log".into(), Level::Low, 25_000);
+        jobs.submit(id, "a.log".into(), Level::Low, false, 25_000);
         while !matches!(jobs.get(id).unwrap().state, JobState::Done { .. }) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -276,6 +292,26 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(jobs.sweep(), 1);
         assert!(!stray.exists());
+    }
+
+    #[tokio::test]
+    async fn aborting_deletes_the_job_and_leaves_no_files() {
+        let policy = Policy {
+            delete_originals_after_job: true,
+            original_retention: Duration::from_secs(3600),
+            output_retention: Duration::from_secs(3600),
+        };
+        let (jobs, storage) = setup("abort", policy);
+        let id = Uuid::new_v4();
+        std::fs::write(storage.upload_path(id), "line\n".repeat(5000)).unwrap();
+        let job = jobs.submit(id, "a.log".into(), Level::Low, true, 25_000);
+        assert!(job.fast && !job.fast_available, "fast changes nothing for text");
+        assert!(jobs.forget(id));
+        assert!(!jobs.forget(id), "already gone");
+        assert!(jobs.get(id).is_none());
+        tokio::time::sleep(Duration::from_millis(200)).await; // let the worker finish or skip it
+        assert!(!storage.upload_path(id).exists());
+        assert!(!storage.output_path(id).exists(), "a result written after the abort is deleted too");
     }
 
     #[tokio::test]

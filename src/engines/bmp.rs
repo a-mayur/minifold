@@ -9,7 +9,7 @@ use super::{Encoded, Options, png};
 use crate::error::AppError;
 use crate::storage::remove_if_exists;
 
-pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, AppError> {
+pub fn compress(input: &Path, output: &Path, opts: Options, cancel: &std::sync::atomic::AtomicBool) -> Result<Encoded, AppError> {
     let data = image::read(input)?;
     let (width, height) = dimensions(&data).ok_or_else(|| corrupt("BMP"))?;
     image::check_pixels(width, height)?;
@@ -26,7 +26,7 @@ pub fn compress(input: &Path, output: &Path, opts: Options) -> Result<Encoded, A
     // The PNG engine works from a file (pngquant needs one).
     let converted = output.with_extension("bmp.png");
     std::fs::write(&converted, &png_bytes).map_err(|e| AppError::io(&e))?;
-    let result = png::compress(&converted, output, opts);
+    let result = png::compress(&converted, output, opts, cancel);
     remove_if_exists(&converted).map_err(|e| AppError::io(&e))?;
     match result? {
         Encoded::Written { note } => Ok(Encoded::Written { note: format!("Converted to PNG · {note}") }),
@@ -65,8 +65,8 @@ mod tests {
         img.write_to(&mut Cursor::new(&mut bmp), ::image::ImageFormat::Bmp).unwrap();
         let input = crate::engines::tests::temp_file("in.bmp", &bmp);
         let output = input.with_extension("out");
-        let opts = Options { level: crate::level::Level::Medium, strip_metadata: true };
-        assert!(matches!(compress(&input, &output, opts).unwrap(), Encoded::Written { .. }));
+        let opts = Options { level: crate::level::Level::Medium, strip_metadata: true, fast: false };
+        assert!(matches!(compress(&input, &output, opts, &Default::default()).unwrap(), Encoded::Written { .. }));
         let back = ::image::load_from_memory(&std::fs::read(&output).unwrap()).unwrap().to_rgb8();
         assert_eq!(back, img);
     }

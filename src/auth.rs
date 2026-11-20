@@ -10,35 +10,49 @@ pub const USER_COOKIE: &str = "minifold_session";
 pub const ADMIN_COOKIE: &str = "minifold_admin";
 const COOKIE_MAX_AGE_SECS: u32 = 30 * 24 * 60 * 60;
 
-/// Rejects requests without the shared user token (cookie or `Authorization: Bearer`).
+/// Rejects requests without the shared user token (cookie or `Authorization: Bearer`),
+/// unless no token is set.
 pub async fn require_user(State(app): State<AppState>, req: Request, next: Next) -> Response {
-    if presents(req.headers(), USER_COOKIE, &app.config.auth_token) {
+    if allowed(req.headers(), USER_COOKIE, app.config.auth_token.as_deref()) {
         return next.run(req).await;
     }
     AppError::new(ErrorCode::Unauthorized, "Sign in with the access token to continue.").into_response()
 }
 
-/// Rejects requests without the admin token.
+/// Rejects requests without the admin token, unless no admin token is set.
 pub async fn require_admin(State(app): State<AppState>, req: Request, next: Next) -> Response {
-    if presents(req.headers(), ADMIN_COOKIE, &app.config.admin_token) {
+    if allowed(req.headers(), ADMIN_COOKIE, app.config.admin_token.as_deref()) {
         return next.run(req).await;
     }
     AppError::new(ErrorCode::Unauthorized, "Sign in with the admin token to continue.").into_response()
 }
 
-fn presents(headers: &HeaderMap, cookie: &str, expected: &str) -> bool {
-    presented_token(headers, cookie).is_some_and(|token| tokens_match(token, expected))
+/// `expected` is `None` when sign-in is off. The Bearer header carries the token as is,
+/// the cookie carries it percent-encoded (see `session_cookie`).
+fn allowed(headers: &HeaderMap, cookie: &str, expected: Option<&str>) -> bool {
+    let Some(expected) = expected else { return true };
+    if let Some(bearer) = bearer(headers) {
+        return tokens_match(bearer, expected.as_bytes());
+    }
+    cookie_value(headers, cookie).is_some_and(|value| tokens_match(value.as_bytes(), encode(expected).as_bytes()))
 }
 
-pub fn tokens_match(given: &str, expected: &str) -> bool {
+pub fn tokens_match(given: &[u8], expected: &[u8]) -> bool {
     // Constant-time comparison so response timing doesn't reveal the token.
-    given.len() == expected.len()
-        && given.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    given.len() == expected.len() && given.iter().zip(expected).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
 }
 
+/// Tokens may contain anything (spaces, ';', non-ASCII), so the cookie holds them percent-encoded.
 pub fn session_cookie(name: &str, token: &str) -> HeaderValue {
-    HeaderValue::from_str(&format!("{name}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={COOKIE_MAX_AGE_SECS}"))
-        .expect("token was validated as a header-safe value")
+    HeaderValue::from_str(&format!("{name}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={COOKIE_MAX_AGE_SECS}", encode(token)))
+        .expect("percent-encoded value is header-safe")
+}
+
+fn encode(token: &str) -> String {
+    token
+        .bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { char::from(b).to_string() } else { format!("%{b:02X}") })
+        .collect()
 }
 
 pub fn clear_cookie(name: &str) -> HeaderValue {
@@ -46,14 +60,11 @@ pub fn clear_cookie(name: &str) -> HeaderValue {
         .expect("cookie name is a constant")
 }
 
-fn presented_token<'a>(headers: &'a HeaderMap, cookie: &str) -> Option<&'a str> {
-    if let Some(bearer) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-    {
-        return Some(bearer);
-    }
+fn bearer(headers: &HeaderMap) -> Option<&[u8]> {
+    headers.get(header::AUTHORIZATION)?.as_bytes().strip_prefix(b"Bearer ")
+}
+
+fn cookie_value<'a>(headers: &'a HeaderMap, cookie: &str) -> Option<&'a str> {
     headers
         .get_all(header::COOKIE)
         .iter()
@@ -70,16 +81,40 @@ mod tests {
 
     #[test]
     fn compares_tokens_exactly() {
-        assert!(tokens_match("abcdefghijklmnop", "abcdefghijklmnop"));
-        assert!(!tokens_match("abcdefghijklmnoq", "abcdefghijklmnop"));
-        assert!(!tokens_match("abc", "abcdefghijklmnop"));
+        assert!(tokens_match(b"abcdefghijklmnop", b"abcdefghijklmnop"));
+        assert!(!tokens_match(b"abcdefghijklmnoq", b"abcdefghijklmnop"));
+        assert!(!tokens_match(b"abc", b"abcdefghijklmnop"));
     }
 
     #[test]
     fn reads_the_right_cookie() {
         let mut headers = HeaderMap::new();
         headers.insert(header::COOKIE, HeaderValue::from_static("minifold_session=user-token; minifold_admin=admin-token"));
-        assert_eq!(presented_token(&headers, USER_COOKIE), Some("user-token"));
-        assert_eq!(presented_token(&headers, ADMIN_COOKIE), Some("admin-token"));
+        assert_eq!(cookie_value(&headers, USER_COOKIE), Some("user-token"));
+        assert_eq!(cookie_value(&headers, ADMIN_COOKIE), Some("admin-token"));
+    }
+
+    fn with(name: &str, value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(name.parse::<header::HeaderName>().unwrap(), HeaderValue::from_str(value).unwrap());
+        headers
+    }
+
+    #[test]
+    fn any_token_round_trips_through_the_cookie() {
+        for token in ["a", "x y; z,=", "ünïcødé 🔑", "same"] {
+            let set = session_cookie(USER_COOKIE, token);
+            let pair = set.to_str().unwrap().split(';').next().unwrap().to_string();
+            assert!(allowed(&with("cookie", &pair), USER_COOKIE, Some(token)), "{token:?}");
+            assert!(!allowed(&with("cookie", &pair), USER_COOKIE, Some("other")));
+        }
+    }
+
+    #[test]
+    fn bearer_and_no_token() {
+        assert!(allowed(&with("authorization", "Bearer x y; z"), USER_COOKIE, Some("x y; z")));
+        assert!(!allowed(&with("authorization", "Bearer wrong"), USER_COOKIE, Some("x")));
+        assert!(!allowed(&HeaderMap::new(), USER_COOKIE, Some("x")));
+        assert!(allowed(&HeaderMap::new(), USER_COOKIE, None), "no token set: sign-in is off");
     }
 }

@@ -26,7 +26,7 @@ echo "MINIFOLD_ADMIN_TOKEN=$(openssl rand -hex 24)" >> .env
 docker compose up -d --build
 ```
 
-Open `http://<server>:8080` and sign in with `MINIFOLD_AUTH_TOKEN`. The admin page is at `http://<server>:8080/admin` (sign in with `MINIFOLD_ADMIN_TOKEN`).
+Open `http://<server>:8080` and sign in with `MINIFOLD_AUTH_TOKEN`. The admin page is at `http://<server>:8080/admin` (sign in with `MINIFOLD_ADMIN_TOKEN`). Without a `.env` file both tokens are empty and sign-in is off (see Configuration).
 
 The container needs the restart policy `unless-stopped` (set in `docker-compose.yml`): the admin page's **Restart now** button makes Minifold exit cleanly and relies on Docker to start it again. On Unraid, add `--restart unless-stopped` to the container's **Extra Parameters**.
 
@@ -54,12 +54,14 @@ Then add the container from the template below. It uses `ghcr.io/a-mayur/minifol
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `MINIFOLD_AUTH_TOKEN` | no | generated | Shared access token for users, 16+ visible ASCII characters, no `;` or `,` |
-| `MINIFOLD_ADMIN_TOKEN` | no | generated | Admin token, same rules, must differ from the user token |
-
-If a token isn't set, Minifold generates a random one on first start, prints it **once** in the container log (`docker logs minifold`) and saves it in `/config/tokens.toml` (readable only by the container user). Later starts reuse it. A token set in the environment always wins; delete `tokens.toml` and restart to generate new ones.
+| `MINIFOLD_AUTH_TOKEN` | no | empty | Shared access token for users. Any length, any characters. Empty or unset: no sign-in |
+| `MINIFOLD_ADMIN_TOKEN` | no | empty | Admin token. Any length, any characters, may equal the access token. Empty or unset: no admin sign-in |
 | `MINIFOLD_DATA_DIR` | no | `/data` | Where uploads and outputs are stored while jobs run |
 | `MINIFOLD_CONFIG_DIR` | no | `/config` | Where `settings.toml` lives |
+
+Tokens are used exactly as given (no trimming). Each one is optional on its own: leave the access token empty and the app opens without sign-in; leave the admin token empty and so does the admin page. Minifold logs a warning at startup for each check that is off.
+
+> **Security:** without tokens, anyone who can reach the port can compress files, and without an admin token anyone can change settings and restart the container. With the same value for both, every user is also an admin. Only run like that on a network you trust, never exposed to the internet.
 | `MINIFOLD_BIND` | no | `0.0.0.0:8080` | Listen address |
 
 ### Admin settings (`settings.toml`)
@@ -142,8 +144,9 @@ Authenticate with `Authorization: Bearer <token>` (or the session cookie set by 
 | `POST` | `/api/login` | `{"token": "..."}` sets the session cookie |
 | `POST` | `/api/logout` | clears it |
 | `GET` | `/api/config` | max file size and retention policy, for display |
-| `POST` | `/api/jobs?name=<file name>&level=<low\|medium\|high\|extra>` | raw file as the body; returns the job (`202`) |
+| `POST` | `/api/jobs?name=<file name>&level=<low\|medium\|high\|extra>[&method=fast]` | raw file as the body; returns the job (`202`). `method=fast` uses quicker encoder settings for videos, PDFs (lossless qpdf only), HEIC and AVIF; `fast_available` in the job says whether it applies |
 | `GET` | `/api/jobs/{id}` | job state: `queued`, `running`, `done`, `failed` |
+| `DELETE` | `/api/jobs/{id}` | abort a queued or running job (the running program is stopped) or remove a finished one; its files are deleted at once (`204`) |
 | `GET` | `/api/jobs/{id}/download` | the result |
 | `GET` | `/healthz` | `ok` |
 | `POST` | `/api/admin/login` | `{"token": "..."}` sets the admin session cookie |
@@ -162,7 +165,7 @@ Errors are JSON: `{"code": "FILE_TOO_LARGE", "message": "This file is 2.8 GB and
 | Code | HTTP | When |
 |---|---|---|
 | `UNAUTHORIZED` | 401 | Missing or wrong token |
-| `INVALID_REQUEST` | 400 | Malformed request body |
+| `INVALID_REQUEST` | 400 | Malformed request body, or an unknown `method` |
 | `MISSING_FILENAME` | 400 | No file name, or an invalid one |
 | `INVALID_LEVEL` | 400 | Level isn't low/medium/high/extra |
 | `INVALID_SETTING` | 400 | An admin setting is missing, unknown or out of range |

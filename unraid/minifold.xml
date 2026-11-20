@@ -9,7 +9,25 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/a-mayur/minifold/issues</Support>
   <Project>https://github.com/a-mayur/minifold</Project>
-  <Overview>Minifold - a lightweight self-hosted file compressor. Drag and drop images, PDFs, videos or any other file, pick a level, and download smaller files. Everything is processed on this server; nothing is sent anywhere else. Admin page at /admin. Optional GPU video encoding: Intel/AMD - add --device=/dev/dri --group-add=GID to Extra Parameters (GID from: stat -c %g /dev/dri/renderD128); NVIDIA - add --runtime=nvidia and the variables NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,video,utility.</Overview>
+  <Overview>Minifold is a lightweight, self-hosted file compressor. Drop in images, PDFs, videos or any other file, pick a level and download smaller files in the same format.&#xD;
+&#xD;
+Features:&#xD;
+- Images: JPEG, PNG, WebP, GIF, HEIC, AVIF, TIFF (BMP becomes PNG)&#xD;
+- PDFs and videos (MP4, MOV, MKV, WebM)&#xD;
+- Any other file is packed with zstd&#xD;
+- Four levels: Low, Medium, High, Extra&#xD;
+- Abort a slow file and retry it with another level or a faster method&#xD;
+- Light and dark mode with pastel color themes&#xD;
+&#xD;
+Privacy: everything is processed on this server. Nothing is sent anywhere else. Location, camera and author details are removed by default.&#xD;
+&#xD;
+Admin page: http://[server]:[port]/admin for size limits, retention, metadata, themes and GPU encoding.&#xD;
+&#xD;
+Sign-in: set the Access token and Admin token below. Leave a token empty to turn that sign-in off (only on a network you trust).&#xD;
+&#xD;
+Optional GPU video encoding, added to Extra Parameters:&#xD;
+- Intel/AMD: --device=/dev/dri --group-add=GID (GID from: stat -c %g /dev/dri/renderD128)&#xD;
+- NVIDIA: --runtime=nvidia, plus the variables NVIDIA_VISIBLE_DEVICES=all and NVIDIA_DRIVER_CAPABILITIES=compute,video,utility</Overview>
   <Category>Tools: MediaApp:Photos MediaApp:Video</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/a-mayur/minifold/main/unraid/minifold.xml</TemplateURL>
@@ -20,6 +38,6 @@
   <Config Name="Web UI port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web interface." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/minifold/config" Mode="rw" Description="Holds settings.toml (the admin settings)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/minifold/config</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/minifold/data" Mode="rw" Description="Files while they're being compressed. Deleted automatically by the retention settings. Needs free space of at least 2.5x the max file size." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/minifold/data</Config>
-  <Config Name="Access token" Target="MINIFOLD_AUTH_TOKEN" Default="" Mode="" Description="Password for everyone using Minifold (at least 16 characters). Leave empty and Minifold generates one on first start: it's shown once in the container log and saved in /mnt/user/appdata/minifold/config/tokens.toml." Type="Variable" Display="always" Required="false" Mask="true"></Config>
-  <Config Name="Admin token" Target="MINIFOLD_ADMIN_TOKEN" Default="" Mode="" Description="Password for the admin page (/admin), different from the access token. Leave empty to have one generated, like the access token." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Access token" Target="MINIFOLD_AUTH_TOKEN" Default="" Mode="" Description="Password for everyone using Minifold. Any length and any characters. Leave empty to turn sign-in off: then anyone who can reach this port can use Minifold." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Admin token" Target="MINIFOLD_ADMIN_TOKEN" Default="" Mode="" Description="Password for the admin page (/admin). Any length and any characters, and it may be the same as the access token. Leave empty to turn admin sign-in off: then anyone who can reach this port can change the settings." Type="Variable" Display="always" Required="false" Mask="true"></Config>
 </Container>
